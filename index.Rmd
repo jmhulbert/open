@@ -1,0 +1,21 @@
+---
+title: "Forest Health Watch Open Analyses"
+author: 
+date: 
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Welcome
+
+The purpose of this repository is to provide a space for our open data analyses
+
+* Open analyses
+  + [Redcedar Dieback](./redcedar/)
+  
+### Contact
+
+Please contact Joey Hulbert ([hulbe@wsu.edu](mailto:hulbe@wsu.edu)) with any questions.
