@@ -1,0 +1,24 @@
+---
+title: "Random Forest - Climate Data Analysis"
+author: "Contributors: Joey Hulbert,... "
+output: html_document
+---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Approach
+
+The overall approach is to model empirical data collected by community scientists with ancillary climate data to identify important predictors of western redcedar dieback.
+
+## iNat Data - Empirical Tree Points
+
+The steps for wrangling the [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
+
+These data were then subset to include only gps information to use in collecting ancillary data.

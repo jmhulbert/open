@@ -1,0 +1,29 @@
+---
+title: "Open Redcedar Active Analyses Page"
+author:  "Contributors: Joey Hulbert,... "
+output: html_document
+---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Active Analyses
+
+Below is a list of active analyses and contributors. Each analysis has a page describing the methods of analysis
+
+* Analyses
+  + Random forests - climate data
+  + Cluster analysis
+  + Hypothesis tests
+    + Distance from waterways
+  
+
+

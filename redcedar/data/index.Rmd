@@ -1,0 +1,25 @@
+---
+title: "Data Wrangling"
+author: "Contributors: Joey Hulbert,... "
+output: html_document
+---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Purpose
+
+The purpose of this page is to provide a dataset to use in subsequent analyses. Major changes to original data will be documented here and a final dataset will be exported here. 
+
+### iNaturalist Data
+
+Observation data were downloaded from the [Wester Redcedar Dieback Map](https://www.inaturalist.org/projects/western-redcedar-dieback-map) project after ~2230 observations were shared.
+
+

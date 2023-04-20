@@ -1,0 +1,51 @@
+---
+title: "Open Redcedar Analyses Instructions"
+author: "Contributors: Joey Hulbert,..."
+output: html_document
+---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Instructions
+
+We will use a Github Repository to host Github Pages written with R Markdown to document methods in analyses. 
+
+* Getting set up
+  + Install R and Rstudio
+  + Create a login on github
+  + Install git. Optionally install GitHub Desktop. Rstudio also has built in git functionality. 
+  + Clone the [Github Repository](https://github.com/jmhulbert/open) to your computer.
+  + Open Rstudio project 'open.Rproj' in rStudio.
+  
+We will document methods with R Markdown. Please create a R Markdown document to track methods even if the analyses are not completed in R (e.g. with ArcGIS).
+  
+* Creating a github page to document methods
+  + Browse to analyses (open/redcedar/analyses) folder
+  + Create a new folder for your analysis (e.g. cluster)
+  + Create a html markdown document in the new folder
+  + List the contributors to the analysis in the Rmarkdown YAML
+  + Copy top table from other index.Rmd files to include navigation pane (redcedar, data, analyses, etc))
+  + Clear default text if desired
+  + Add a 'welcome or purpose header and description'
+  + Save the markdown document as index.Rmd
+  + Knit the document into index.html
+  + Commit and Push changes to github repository
+  
+Link to your analysis page from the main [active analyses page](https://jmhulbert.github.io/open/redcedar/analyses) when ready.   
+  
+* Create link in analyses page
+  + Browse analyses folder and open index.Rmd file
+  + Add the link to your new analysis folder/page
+  + Add your name as a contributor in the Rmarkdown YAML
+  + Knit the document into index.html
+  + Commit and push changes to github repository. 
+
+  
+  

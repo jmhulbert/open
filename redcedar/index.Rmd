@@ -1,15 +1,19 @@
 ---
-title: "Redcedar Open Analyses"
-author: 
-date: 
+title: "Open Redcedar Analyses Landing Page"
+author:  "Contributors: Joey Hulbert,... " 
 output: html_document
 ---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-![](./files/images/IMG_3809.jpeg)
+![](./images/IMG_3809.jpeg)
 
 ### Redcedar dieback
 

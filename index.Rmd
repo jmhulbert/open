@@ -1,9 +1,15 @@
 ---
-title: "Forest Health Watch Open Analyses"
-author: 
-date: 
+title: "Forest Health Watch Open Analyses Landing Page"
+author: "Contributors: Joey Hulbert,..." 
 output: html_document
 ---
+
+|            |            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|:----------:|
+|[Home](https://jmhulbert.github.io/open/)|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |            |
+
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
