@@ -22,7 +22,7 @@ We will use a Github Repository to host Github Pages written with R Markdown to 
 * Getting set up
   + Install R and Rstudio
   + Create a login on github
-  + Install git. Optionally install GitHub Desktop. Rstudio also has built in git functionality. 
+  + Install git. Optionally install GitHub Desktop. Rstudio also has built in github functionality, but you may need to install git on your computer. 
   + Clone the [Github Repository](https://github.com/jmhulbert/open) to your computer.
   + Open Rstudio project 'open.Rproj' in rStudio.
 
