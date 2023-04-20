@@ -41,6 +41,7 @@ We will document methods with R Markdown. Please create a R Markdown document to
   + Save the markdown document as index.Rmd
   + Knit the document into index.html
   + Commit and Push changes to github repository
+    + Describe changes or progress for other collaborators as commit message.
 
 ### Completing analyses
   
@@ -70,6 +71,7 @@ Link to your analysis page from the main [active analyses page](https://jmhulber
   + Add the link to your new analysis folder/page
   + Add your name as a contributor in the Rmarkdown YAML
   + Knit the document into index.html
-  + Commit and push changes to github repository. 
+  + Commit and push changes to github repository.
+    + Describe changes or progress for other collaborators as commit message.
 
 
