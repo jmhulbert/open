@@ -20,7 +20,7 @@ knitr::opts_chunk$set(echo = TRUE)
 Below is a list of active analyses and contributors. Each analysis has a page describing the methods of analysis
 
 * Analyses
-  + Random forests - climate data
+  + [Random forests - climate data](https://jmhulbert.github.io/open/redcedar/analyses/random-forests)
   + Cluster analysis
   + Hypothesis tests
     + Distance from waterways
