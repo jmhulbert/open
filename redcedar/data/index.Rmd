@@ -144,7 +144,7 @@ data %>% group_by(reclassified.tree.canopy.symptoms) %>% count()
 write.csv(data,file="data-modified.csv")
 ```
 
-[data-modified.csv](https://jmhulbert.github.io/open/redcedar/data/data-modified.csv)
+[data-modified.csv](https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv)
 
 
 Please use this data in analyses. Please make any changes or corrections to the data in this R markdown so everyone is using the same dataset in the analyses.

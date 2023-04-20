@@ -24,17 +24,18 @@ The overall approach is to model empirical data collected by community scientist
 The steps for wrangling the [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
 
 ```{r}
-data <- read.csv("./redcedar/data/data-modified.csv")
+data <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv')
 ```
 
 ### Wrangle data into format for climateNA
 
 Data were then subset to include only gps information to use in collecting ancillary data.
 
+
 ```{r}
-gps <- data[c(1,22,23)] #subset data to only include id and gps coordinates
+gps <- data[c(2,24,25)] #subset data to only include id and gps coordinates
 gps <- rename(gps,lat = latitude) %>% `colnames<-`(c("ID2","lat","long")) %>% mutate(el = ".") #columns were ranamed to match format for ClimateNA tool.
-#write.csv(gps,file="./data/gps1500.csv") #named 1500 because data was downloaded after having 1500 observations
+#write.csv(gps,file="/Users/redcedar/ServerFiles/open/redcedar/data/gps2232.csv") #named 2232 because data was downloaded after having 2232 observations
 ```
 
 ### Normal Data
@@ -87,8 +88,9 @@ colnames(normals) <- str_c("norm_",colnames(normals)) #change column names - not
 normals <- rename(normals, id = norm_ID2) #rename column 'ID2' (changed for ClimateNA tool) back to 'id'
 ```
 
-
-
+```{r}
+combo <- left_join(data,normals,by="id")
+```
 
 ```{r}
 combo.filtered <- combo %>% select(-c("field.optional...site.type",
@@ -169,3 +171,77 @@ combo.filtered <- combo.filtered %>% select(-c(
 ,"norm_Elevation"))
 ```
 
+Remove variables with variables that have near zero standard deviations (entire column is same value)
+
+```{r include=FALSE}
+#nearZeroVar(combo.filtered)
+combo.filtered.nearzerovar <- combo.filtered[,-nearZeroVar(combo.filtered)]
+#write.csv(combo.decade.filtered,file="./data/troubleshoot.csv")
+```
+
+```{r}
+combo.filtered.nearzerovar <-as.data.frame(unclass(combo.filtered.nearzerovar),stringsAsFactors=TRUE) #change all chars to factors
+```
+
+```{r}
+combo.filtered.nearzerovar <- na.omit(combo.filtered.nearzerovar)
+```
+
+
+#### Normal Model
+
+```{r full rf model}
+set.seed(71)
+rf <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=combo.filtered.nearzerovar, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+```
+
+```{r}
+rf
+```
+
+```{r}
+plot(rf)
+```
+
+```{r fig.height=6,fig.width=9}
+#Below code copied from: https://github.com/StatQuest/random_forest_demo/blob/master/random_forest_demo.R as described here: https://www.youtube.com/watch?v=6EXPYzbfLCE
+
+## Start by converting the proximity matrix into a distance matrix. 
+
+distance.matrix <- as.dist(1-rf$proximity)
+
+mds.stuff <- cmdscale(distance.matrix, eig=TRUE, x.ret=TRUE)
+
+## calculate the percentage of variation that each MDS axis accounts for...
+mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100, 1)
+
+## now make a fancy looking plot that shows the MDS axes and the variation:
+mds.values <- mds.stuff$points
+mds.data <- data.frame(Sample=rownames(mds.values),
+  X=mds.values[,1],
+  Y=mds.values[,2],
+  Status=reclassified$field.tree.canopy.symptoms)
+
+ggplot(data=mds.data, aes(x=X, y=Y, label=Sample)) + 
+  geom_text(aes(color=Status)) +  
+  stat_ellipse(geom="polygon",aes(fill=Status,color=Status),alpha=0.45) +
+  theme_bw() + 
+  scale_color_discrete() +
+  scale_fill_discrete() +
+  xlab(paste("MDS1 - ", mds.var.per[1], "%", sep="")) +
+  ylab(paste("MDS2 - ", mds.var.per[2], "%", sep="")) +
+  ggtitle("MDS plot using (1 - Random Forest Proximities)")
+
+#By default, the stat_ellipse function draws a 95% confidence level for a multivariate t-distribution. You can modify this level with level argument.
+
+#more info for ellipse https://r-charts.com/correlation/scatter-plot-ellipses-ggplot2/
+```
+
+```{r fig.height=9,fig.width=12}
+varImpPlot(rf)
+```
+
+```{r}
+importance <- varImp(rf,scale=TRUE)
+plot(importance)
+```

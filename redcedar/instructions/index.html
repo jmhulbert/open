@@ -428,6 +428,8 @@ folder</a>
 <ul>
 <li>avoid copying the data into new locations, lets try to work from the
 same dataset throughout.</li>
+<li>data can be downloaded <a href="https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv">here</a>
+or read inline using the command below.</li>
 </ul></li>
 <li>Please document all steps throughout methods so they can be easily
 reproduced by novice data scientist.</li>
@@ -436,6 +438,9 @@ variable when possible, however, use the ‘binary.tree.canopy.symptoms’
 column as the response variable when there is not enough resolution to
 split data into 5 groups.</li>
 </ul></li>
+</ul>
+<pre class="r"><code>data &lt;- read.csv(https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv)</code></pre>
+<ul>
 <li>File storage
 <ul>
 <li>Please save R analyses and related (small) datasets in the github

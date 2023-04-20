@@ -47,8 +47,15 @@ We will document methods with R Markdown. Please create a R Markdown document to
 * Completing analyses 
   + Please complete analyses using data in the [data folder](https://jmhulbert.github.io/open/redcedar/analyses)
     + avoid copying the data into new locations, lets try to work from the same dataset throughout.
+    + data can be downloaded [here](https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv) or read inline using the command below.
   + Please document all steps throughout methods so they can be easily reproduced by novice data scientist.
   + Use the 'reclassified.tree.canopy.symptoms' column as the response variable when possible, however, use the 'binary.tree.canopy.symptoms' column as the response variable when there is not enough resolution to split data into 5 groups. 
+
+```{r eval=FALSE, include=TRUE}
+data <- read.csv(https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv)
+```
+
+
 
 * File storage
   + Please save R analyses and related (small) datasets in the github repository.
