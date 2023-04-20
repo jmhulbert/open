@@ -1,5 +1,5 @@
 ---
-title: "Open Redcedar Analyses Landing Page"
+title: "Open Redcedar Dieback Analyses"
 author:  "Contributors: Joey Hulbert,... " 
 output: html_document
 ---
