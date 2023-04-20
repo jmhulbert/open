@@ -386,8 +386,48 @@ final dataset will be exported here.</p>
 <div id="inaturalist-data" class="section level3">
 <h3>iNaturalist Data</h3>
 <p>Observation data were downloaded from the <a href="https://www.inaturalist.org/projects/western-redcedar-dieback-map">Wester
-Redcedar Dieback Map</a> project after ~2230 observations were
-shared.</p>
+Redcedar Dieback Map</a> project on April 19, 2023 after 2232
+observations were shared.</p>
+<p>The query used to download data is as follows
+“quality_grade=any&amp;identifications=any&amp;projects%5B%5D=western-redcedar-dieback-map”.
+All ‘Geo’ columns and ‘Observation Fields’ columns were included.</p>
+</div>
+<div id="read-data-from-csv-into-r" class="section level3">
+<h3>Read data from csv into R</h3>
+</div>
+<div id="clean-data" class="section level3">
+<h3>Clean Data</h3>
+<p>Some of the iNat project questions changed since it was created so
+some we need to adjust the answers to be more consistent throughout the
+project.</p>
+</div>
+<div id="reclassify-response-variables" class="section level3">
+<h3>Reclassify response variables</h3>
+<p>Reclassified response variable classes</p>
+<p>Binary Response (2 categories)</p>
+<pre><code>## # A tibble: 2 × 2
+## # Groups:   binary.tree.canopy.symptoms [2]
+##   binary.tree.canopy.symptoms     n
+##   &lt;fct&gt;                       &lt;int&gt;
+## 1 Healthy                      1275
+## 2 Unhealthy                     954</code></pre>
+<p>Filtered response (5 categories)</p>
+<pre><code>## # A tibble: 5 × 2
+## # Groups:   reclassified.tree.canopy.symptoms [5]
+##   reclassified.tree.canopy.symptoms     n
+##   &lt;fct&gt;                             &lt;int&gt;
+## 1 Healthy                            1275
+## 2 Thinning Canopy                     309
+## 3 Dead Top                            259
+## 4 Tree is Dead                        109
+## 5 Other                               277</code></pre>
+</div>
+<div id="export-data" class="section level2">
+<h2>Export Data</h2>
+<p><a href="https://jmhulbert.github.io/open/redcedar/data/data-modified.csv">data-modified.csv</a></p>
+<p>Please use this data in analyses. Please make any changes or
+corrections to the data in this R markdown so everyone is using the same
+dataset in the analyses.</p>
 </div>
 
 

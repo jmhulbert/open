@@ -11,8 +11,13 @@ output: html_document
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 ```
+
+```{r include=FALSE}
+library(tidyverse)
+```
+
 
 ### Purpose
 
@@ -20,6 +25,126 @@ The purpose of this page is to provide a dataset to use in subsequent analyses. 
 
 ### iNaturalist Data
 
-Observation data were downloaded from the [Wester Redcedar Dieback Map](https://www.inaturalist.org/projects/western-redcedar-dieback-map) project after ~2230 observations were shared.
+Observation data were downloaded from the [Wester Redcedar Dieback Map](https://www.inaturalist.org/projects/western-redcedar-dieback-map) project on April 19, 2023 after 2232 observations were shared.
+
+The query used to download data is as follows "quality_grade=any&identifications=any&projects%5B%5D=western-redcedar-dieback-map". All 'Geo' columns and 'Observation Fields' columns were included. 
+
+```{r}
+#full query listed below
+ 	
+#Query quality_grade=any&identifications=any&projects[]=western-redcedar-dieback-map Columns id, observed_on_string, observed_on, time_observed_at, time_zone, user_id, user_login, user_name, created_at, updated_at, quality_grade, license, url, image_url, sound_url, tag_list, description, num_identification_agreements, num_identification_disagreements, captive_cultivated, oauth_application_id, place_guess, latitude, longitude, positional_accuracy, private_place_guess, private_latitude, private_longitude, public_positional_accuracy, geoprivacy, taxon_geoprivacy, coordinates_obscured, positioning_method, positioning_device, place_town_name, place_county_name, place_state_name, place_country_name, place_admin1_name, place_admin2_name, species_guess, scientific_name, common_name, iconic_taxon_name, taxon_id, field:tree+canopy+symptoms, field:optional+-+did+the+tree+have+heat+damage, field:percent+canopy+affected+%28%25%29, field:dieback+percent, field:number+of+additional+unhealthy+trees+%28of+same+species%29+in+area+%28within+sight%29, field:percent+of+trees+%28of+same+species%29+within+sight+that+are+unhealthy, field:other+factors+-+are+there+signs+or+symptoms+of+insect%2C+diseases%2C+or+other+damage%3F, field:optional+-+what+%27other+factors%27+were+observed%3F, field:optional+-+tree+size, field:optional+-+site+type, field:optional+-+site%2Flocation+description, field:optional+-+site%2Farea+disturbance+level, field:optional+-+site+hydrology, field:optional+-+access+to+water, field:optional+-+slope+position, field:optional+-+were+there+any+other+unhealthy+plant+species+on+the+site%3F, field:optional+-+timing+of+symptoms+estimate, field:optional+-+estimated+time+spent+to+make+this+observation+%28%23+of+minutes%29, field:optional+-+can+we+follow+up+with+you%3F, field:notes 
+```
+
+### Read data from csv into R
+
+```{r}
+data <- read.csv("observations-4.19.23.csv")
+```
 
 
+### Clean Data
+
+Some of the iNat project questions changed since it was created so some we need to adjust the answers to be more consistent throughout the project. 
+
+```{r}
+data$field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight. <- as.factor(data$field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight.)
+data$field.optional...what..other.factors..were.observed. <- as.factor(data$field.optional...what..other.factors..were.observed.)
+data$field.tree.canopy.symptoms <- as.factor(data$field.tree.canopy.symptoms)
+data$field.optional...slope.position <- as.factor(data$field.optional...slope.position)
+data$field.optional...site.type <- as.factor(data$field.optional...site.type)
+data$field.optional...site.location.description  <- as.factor(data$field.optional...site.location.description )
+data$field.optional...tree.size <-as.factor(data$field.optional...tree.size)
+```
+
+```{r}
+data$field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight.[data$field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight.=="4"] <- "4-6"
+data$field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight.[data$field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight.=="5"] <- "4-6"
+data$field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight.[data$field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight.=="2"] <- "2-3"
+```
+
+```{r}
+data$field.tree.canopy.symptoms[data$field.tree.canopy.symptoms=="Multiple Symptoms"] <-"Multiple Symptoms (please list in Notes)"
+data$field.tree.canopy.symptoms[data$field.tree.canopy.symptoms=="multiple symptoms"] <-"Multiple Symptoms (please list in Notes)"
+data$field.tree.canopy.symptoms[data$field.tree.canopy.symptoms=="thinning foliage"] <-"Thinning Canopy"
+data$field.tree.canopy.symptoms[data$field.tree.canopy.symptoms=="healthy"] <-"Healthy"
+data$field.tree.canopy.symptoms[data$field.tree.canopy.symptoms=="dead top"] <-"Old Dead Top (needles already gone)"
+```
+
+```{r}
+data$field.optional...what..other.factors..were.observed.[data$field.optional...what..other.factors..were.observed.=="Fungal Activitiy (mycelial fans, mushrooms at base, or conks on trunk)"] <-"Fungal Activitiy (mycelial fans, bleeding cankers, mushrooms at base, or conks on trunk)"
+data$field.optional...what..other.factors..were.observed.[data$field.optional...what..other.factors..were.observed.=="Needle disease (dieback, checking, blight, etc.)"] <- "Needle or leaf disease (dieback, checking, blight, etc.)"
+```
+
+```{r}
+data$field.optional...slope.position[data$field.optional...slope.position=="Upper 1/3rd of a slope"] <-"Top of slope"
+```
+
+```{r}
+data$field.optional...site.type[data$field.optional...site.type=="Urban Natural"] <-"Urban"
+data$field.optional...site.type[data$field.optional...site.type=="Urban Landscaped"] <-"Urban"
+data$field.optional...site.type[data$field.optional...site.type=="Suburban Natural"] <-"Suburban"
+data$field.optional...site.type[data$field.optional...site.type=="Suburban Lanscaped"] <-"Suburban"
+data$field.optional...site.type[data$field.optional...site.type=="Natural Forest"] <-"Rural"
+```
+
+```{r}
+data$field.optional...tree.size[data$field.optional...tree.size=="Large"] <- "Large (too big to wrap arms around trunk)"
+data$field.optional...tree.size[data$field.optional...tree.size=="Medium"] <- "Medium (can wrap arms around trunk)"
+data$field.optional...tree.size[data$field.optional...tree.size=="Small"] <- "Small (can wrap hands around trunk)"
+data$field.optional...tree.size[data$field.optional...tree.size=="Very Large"] <- "Very Large (would take many people to wrap arms around trunk)"
+```
+
+```{r}
+data$field.optional...site.location.description [data$field.optional...site.location.description =="Yard or open park grounds"] <- "Urban yard or open park grounds"
+```
+
+### Reclassify response variables
+
+
+```{r}
+data <- data %>% filter(field.tree.canopy.symptoms!="Candelabra top or very old spike top (old growth)") %>% mutate(binary.tree.canopy.symptoms=field.tree.canopy.symptoms) %>% mutate(reclassified.tree.canopy.symptoms=field.tree.canopy.symptoms) %>% droplevels()
+```
+
+
+```{r}
+binary_level_key <- c("Healthy" = "Healthy", "Thinning Canopy" = "Unhealthy", "New Dead Top (red or brown needles still attached)" = "Unhealthy", "Old Dead Top (needles already gone)" = "Unhealthy", "Tree is dead" = "Unhealthy", "Multiple Symptoms (please list in Notes)" = "Unhealthy", "Extra Cone Crop" = "Unhealthy", "Browning Canopy" = "Unhealthy","Branch Dieback or 'Flagging'" = "Unhealthy", "Other (please describe in Notes)" = "Unhealthy", "Yellowing Canopy" = "Unhealthy")
+
+
+data$binary.tree.canopy.symptoms <- recode_factor(data$binary.tree.canopy.symptoms, !!!binary_level_key)
+#levels(binary$field.tree.canopy.symptoms)
+data$binary.tree.canopy.symptoms <- as.factor(data$binary.tree.canopy.symptoms)
+```
+
+```{r}
+reclassified_level_key <- c("Healthy" = "Healthy", "Thinning Canopy" = "Thinning Canopy", "New Dead Top (red or brown needles still attached)" = "Dead Top", "Old Dead Top (needles already gone)" = "Dead Top", "Tree is dead" = "Tree is Dead", "Multiple Symptoms (please list in Notes)" = "Other", "Extra Cone Crop" = "Other", "Browning Canopy" = "Other","Branch Dieback or 'Flagging'" = "Other", "Other (please describe in Notes)" = "Other", "Yellowing Canopy" = "Other")
+
+data$reclassified.tree.canopy.symptoms <- recode_factor(data$reclassified.tree.canopy.symptoms, !!!reclassified_level_key)
+#levels(binary$field.tree.canopy.symptoms)
+data$reclassified.tree.canopy.symptoms <- as.factor(data$reclassified.tree.canopy.symptoms)
+```
+
+Reclassified response variable classes
+
+Binary Response (2 categories)
+
+```{r}
+data %>% group_by(binary.tree.canopy.symptoms) %>% count()
+```
+
+Filtered response (5 categories)
+
+```{r}
+data %>% group_by(reclassified.tree.canopy.symptoms) %>% count()
+```
+
+## Export Data
+
+
+```{r}
+write.csv(data,file="data-modified.csv")
+```
+
+[data-modified.csv](https://jmhulbert.github.io/open/redcedar/data/data-modified.csv)
+
+
+Please use this data in analyses. Please make any changes or corrections to the data in this R markdown so everyone is using the same dataset in the analyses.

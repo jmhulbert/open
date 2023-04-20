@@ -17,13 +17,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 We will use a Github Repository to host Github Pages written with R Markdown to document methods in analyses. 
 
+### Set Up
+
 * Getting set up
   + Install R and Rstudio
   + Create a login on github
   + Install git. Optionally install GitHub Desktop. Rstudio also has built in git functionality. 
   + Clone the [Github Repository](https://github.com/jmhulbert/open) to your computer.
   + Open Rstudio project 'open.Rproj' in rStudio.
-  
+
+### Github and R Markdown
+
 We will document methods with R Markdown. Please create a R Markdown document to track methods even if the analyses are not completed in R (e.g. with ArcGIS).
   
 * Creating a github page to document methods
@@ -37,6 +41,20 @@ We will document methods with R Markdown. Please create a R Markdown document to
   + Save the markdown document as index.Rmd
   + Knit the document into index.html
   + Commit and Push changes to github repository
+
+### Completing analyses
+  
+* Completing analyses 
+  + Please complete analyses using data in the [data folder](https://jmhulbert.github.io/open/redcedar/analyses)
+    + avoid copying the data into new locations, lets try to work from the same dataset throughout.
+  + Please document all steps throughout methods so they can be easily reproduced by novice data scientist.
+  + Use the 'reclassified.tree.canopy.symptoms' column as the response variable when possible, however, use the 'binary.tree.canopy.symptoms' column as the response variable when there is not enough resolution to split data into 5 groups. 
+
+* File storage
+  + Please save R analyses and related (small) datasets in the github repository.
+  + All other files (e.g. GIS files) can be stored locally and shared later. 
+  
+### Sharing analyses and methods
   
 Link to your analysis page from the main [active analyses page](https://jmhulbert.github.io/open/redcedar/analyses) when ready.   
   
@@ -47,5 +65,4 @@ Link to your analysis page from the main [active analyses page](https://jmhulber
   + Knit the document into index.html
   + Commit and push changes to github repository. 
 
-  
-  
+
