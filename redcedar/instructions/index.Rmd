@@ -22,7 +22,8 @@ We will use a Github Repository to host Github Pages written with R Markdown to 
 * Getting set up
   + Install R and Rstudio
   + Create a login on github
-  + Install git. Optionally install GitHub Desktop. Rstudio also has built in github functionality, but you may need to install git on your computer. 
+  + Install git. Optionally install GitHub Desktop. Rstudio also has built in github functionality, but you need to install git on your computer then reference git exe in GIT section of 'global options' in RStudio. This [webpage](https://r-bio.github.io/git-installation) is helpful. 
+    + Note the above step may may be necessary if the you receive errors indicating files are read only when trying to save the r files. 
   + Clone the [Github Repository](https://github.com/jmhulbert/open) to your computer.
   + Open Rstudio project 'open.Rproj' in rStudio.
 
@@ -49,6 +50,8 @@ We will document methods with R Markdown. Please create a R Markdown document to
   + Please complete analyses using data in the [data folder](https://jmhulbert.github.io/open/redcedar/analyses)
     + avoid copying the data into new locations, lets try to work from the same dataset throughout.
     + data can be downloaded [here](https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv) or read inline using the command below.
+    + carefully document any changes to the data (wrangling) made before conducting analyses
+  + Include information about the software, packages, and versions used for analyses.  
   + Please document all steps throughout methods so they can be easily reproduced by novice data scientist.
   + Use the 'reclassified.tree.canopy.symptoms' column as the response variable when possible, however, use the 'binary.tree.canopy.symptoms' column as the response variable when there is not enough resolution to split data into 5 groups. 
 

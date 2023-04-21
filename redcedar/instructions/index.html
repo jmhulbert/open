@@ -389,8 +389,13 @@ Markdown to document methods in analyses.</p>
 <li>Install R and Rstudio</li>
 <li>Create a login on github</li>
 <li>Install git. Optionally install GitHub Desktop. Rstudio also has
-built in github functionality, but you may need to install git on your
-computer.</li>
+built in github functionality, but you need to install git on your
+computer then reference git exe in GIT section of ‘global options’ in
+RStudio. This <a href="https://r-bio.github.io/git-installation">webpage</a> is helpful.
+<ul>
+<li>Note the above step may may be necessary if the you receive errors
+indicating files are read only when trying to save the r files.</li>
+</ul></li>
 <li>Clone the <a href="https://github.com/jmhulbert/open">Github
 Repository</a> to your computer.</li>
 <li>Open Rstudio project ‘open.Rproj’ in rStudio.</li>
@@ -435,7 +440,12 @@ folder</a>
 same dataset throughout.</li>
 <li>data can be downloaded <a href="https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv">here</a>
 or read inline using the command below.</li>
+<li>carefully document any changes to the data (wrangling) made before
+conducting analyses</li>
 </ul></li>
+<li>Include information about the software, packages, and versions used
+for analyses.<br />
+</li>
 <li>Please document all steps throughout methods so they can be easily
 reproduced by novice data scientist.</li>
 <li>Use the ‘reclassified.tree.canopy.symptoms’ column as the response
