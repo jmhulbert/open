@@ -13,6 +13,15 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
+```{r include=FALSE}
+library(tidyverse)
+library(randomForest)
+library(caret)
+library(rpart)
+library(knitr)
+```
+
+
 > Please note this analysis and R Markdown document are in still in development :)
 
 # Approach
@@ -42,13 +51,13 @@ gps <- rename(gps,lat = latitude) %>% `colnames<-`(c("ID2","lat","long")) %>% mu
 
 Climate data then extracted with ClimateNA tool following the below process. Data were downloaded for the iNat GPS locations using the ClimateNA Tool.
 
-ClimateNA version 7.21 - The latest version also supports command line access using system2(exe,"") commands, but you likely need to be running r in windows.
+ClimateNA version 7.40 -
 
 * Climate data extraction process with ClimateNA
-  + Convert data into format for climateNA use (see below)
+  + Convert data into format for climateNA use (see above)
   + In ClimateNA
     + Normal Data
-      + Select input file (browse to gps1500 file)
+      + Select input file (browse to gps2232 file)
       + Choose 'More Normal Data'
         + Select 'Normal_1991_2020.nrm'
       + Choose 'All variables(265)'
@@ -56,19 +65,6 @@ ClimateNA version 7.21 - The latest version also supports command line access us
 
 * Grouping explored
   + data averaged over 30 year normals (1991-2020)
-
-### Historical Time Series
-
-Climate NA also allows you to download annual and seasonal data for multiple locations from 1901-2020. 
-
-* Process
-  + Select input file (browse to gps1500 file)
-  + Select 'Historical Time Series'
-  + Select 'Annual and Seasonal variables'
-  + Specify start year (1901)
-  + Specify end year (2020)
-  + Click Start TS
-
 
 ## Variables
 
@@ -83,7 +79,7 @@ Climate NA also allows you to download annual and seasonal data for multiple loc
 
 
 ```{r}
-normals <- read.csv("./data/gps1500_Normal_1991_2020MSY.csv")
+normals <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/gps2232_Normal_1991_2020MSY.csv')
 colnames(normals) <- str_c("norm_",colnames(normals)) #change column names - not to be confused with decadal data
 normals <- rename(normals, id = norm_ID2) #rename column 'ID2' (changed for ClimateNA tool) back to 'id'
 ```
@@ -162,9 +158,11 @@ combo.filtered <- combo %>% select(-c("field.optional...site.type",
 Then, remove specific climate variables not useful as explanatory variables (e.g. norm_Latitutde)
 ```{r}
 combo.filtered <- combo.filtered %>% select(-c(
-"X" 
-,"Latitude"                                    
-,"Longitude"
+"X"
+,"user_name"
+,"binary.tree.canopy.symptoms"
+,"field.tree.canopy.symptoms"
+,"field.dieback.percent"
 ,"norm_X"                                                                                   
 ,"norm_Latitude"                                                                            
 ,"norm_Longitude"                                                                           
@@ -186,6 +184,7 @@ combo.filtered.nearzerovar <-as.data.frame(unclass(combo.filtered.nearzerovar),s
 ```{r}
 combo.filtered.nearzerovar <- na.omit(combo.filtered.nearzerovar)
 ```
+
 
 
 #### Normal Model
@@ -220,7 +219,7 @@ mds.values <- mds.stuff$points
 mds.data <- data.frame(Sample=rownames(mds.values),
   X=mds.values[,1],
   Y=mds.values[,2],
-  Status=reclassified$field.tree.canopy.symptoms)
+  Status=combo.filtered.nearzerovar$reclassified.tree.canopy.symptoms)
 
 ggplot(data=mds.data, aes(x=X, y=Y, label=Sample)) + 
   geom_text(aes(color=Status)) +  

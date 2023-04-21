@@ -21,9 +21,12 @@ Below is a list of active analyses and contributors. Each analysis has a page de
 
 * Analyses
   + [Random forests - climate data](https://jmhulbert.github.io/open/redcedar/analyses/random-forests)
-  + Cluster analysis
+  + Spatial Analyses
+    + Cluster analysis
+    + Rural vs urban
   + Hypothesis tests
     + Distance from waterways
-  
+    + Soil Depth
+  + Explore one of the above or add your jam here..
 
 
