@@ -9,3 +9,9 @@ stringr
 forcats
 lubridate
 XPolaris
+randomForest
+lattice
+caret
+rpart
+knitr
+corrplot

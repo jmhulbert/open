@@ -229,7 +229,7 @@ normals.annual.nearzerovar <-as.data.frame(unclass(normals.annual.nearzerovar),s
 normals.annual.nearzerovar <- na.omit(normals.annual.nearzerovar)
 ```
 
-There were `length(normals.monthly)-length(normals.annual.nearzerovar` monthly variables with zero standard deviation is 
+There were `length(normals.monthly)-length(normals.annual.nearzerovar` monthly variables with zero standard deviation. 
 
 ```{r}
 full <- left_join(random.forest.data,normals.nearzerovar,by="id")
