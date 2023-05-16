@@ -24,6 +24,11 @@ Below is a list of active analyses and contributors. Each analysis has a page de
     + [climate data](https://jmhulbert.github.io/open/redcedar/analyses/random-forests/climate)
     + [soils data](https://jmhulbert.github.io/open/redcedar/analyses/random-forests/soils)
   + Spatial Analyses
+    + Spatial autocorrelation
+    + Distribution overlays with historic and predicted maps (eg Crookston et al 2009)
+      + Maps of where the healthy trees are and where the unhealthy trees are 
+      + Areas where they agree - focus restoration
+      + Areas where they disagree - monitor redcedar to see where they go
     + Cluster analysis
     + Rural vs urban
   + Hypothesis tests

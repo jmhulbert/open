@@ -44,6 +44,11 @@ data <- read.csv("observations-4.19.23.csv")
 
 ### Clean Data
 
+```{r}
+# Note - should we exclude observations with poor GPS accuracy? 
+```
+
+
 Some of the iNat project questions changed since it was created so some we need to adjust the answers to be more consistent throughout the project. 
 
 ```{r}
