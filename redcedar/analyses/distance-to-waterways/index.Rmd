@@ -1,0 +1,180 @@
+---
+title: "Distance to Waterways - WA DNR hydrography"
+author: 'Contributors: Joey Hulbert, Rubén Rodríguez'
+output: html_document
+---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE,warning=FALSE}
+library(knitr)
+```
+
+# Approach
+
+This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA DNR watersheds](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about) and calculate the distance to the [stream centerlines from WA DNR](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about).
+
+The result will be a point geo file that represents where on the stream is the closest point, carrying the metadata as to which redcedar observation is responsible for the point, and which stream id the point sits on.
+
+# Data Wrangling
+
+I (rubén) found that I was not able to do this analysis in R, since the streams shapefile referenced above is ~1gb. For that reason, the analysis is carried out in node.js.
+
+To setup node.js, install [nvm](https://github.com/nvm-sh/nvm).
+
+Run `nvm install 18.13.0` to get the correct engine.
+
+From this directory, run `nvm use` to ensure the node 18.31.0 is active in your terminal.
+
+Run `npm install` to get the dependencies.
+
+Given the large file size of the streams shapefile it is omitted from this repository, but can be downloaded by running `node fetch-streams-shapefile.js`. This is saved to a `wa-dnr-streams` directory.
+
+Then run `node streams-spatial-index.js` in order to create the spatial index of the streams shapefile, and give an interface for being able to query for individual features based on a point's nearest neighbors. This is saved to a `wa-dnr-streams-db` directory. This can take some time. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed.
+
+Then run `node redcedar-poi.js` in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries.
+
+# Distance to Streams
+
+Then run `node distance-to-stream.js` to do the final analysis. This will produce two geojson files.
+
+1. A point feature collection of the points on the stream that represent the closest point to a stream. `redcedar-poi-nearest-k10.geojson`. The distance between observation and stream is stored in meters in the field `npoint-dist`. The observation attributes are prefixed with `opoint`. The closest stream attributes are prefixed with `nline`.
+2. A line feature collection that shows the connections between observations and the closest point on a stream. This is useful to visually spot check results.
+
+
+The following charts summarize the data produced. First is a bar chart that shows the total number of observations for each Tree Canopy Symptom value. Following is a boxplot that shows the distribution of distance values across each of the Tree Symptom values.
+
+<div id="bar"></div>
+<div id="box"></div>
+
+A supplementary map can be found in this same directory (`map.qgz`). It carries all data used for this analysis.
+
+<script type="module">
+  // These charts were iterated on in this Observable
+  // [notebook](https://observablehq.com/d/d834eb92e2f1a5a6).
+  import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
+  main()
+  async function main () {
+    // source data
+    const response = await fetch('redcedar-poi-nearest-k10.geojson')
+    const geojson = await response.json()
+
+    // data as array to visualize
+    const symptoms = [
+      {
+        symptom: 'Healthy',
+        color: 'rgb(172, 252, 172)',
+      },
+      {
+        symptom: 'Thinning Canopy',
+        color: 'rgb(251, 252, 172)',
+      },
+      {
+        symptom: 'Dead Top',
+        color: 'rgb(172, 176, 252)',
+      },
+      {
+        symptom: 'Tree is Dead',
+        color: 'rgb(252, 172, 172)',
+      },
+      {
+        symptom: 'Other',
+        color: 'lightgrey',
+      },
+    ]
+    let rows = geojson.features.map(f => f.properties)
+    rows.sort((a, b) => {
+      if (a['npoint-dist'] < b['npoint-dist']) return -1
+      if (a['npoint-dist'] > b['npoint-dist']) return 1
+      return 0
+    })
+    // add a sorted indices
+    rows = rows.map((row, index) => {
+      row._distince_index = index
+      const symptomIndex = symptoms
+        .findIndex(s => s.symptom === row['opoint-reclassified.tree.canopy.symptoms'])
+      row._sympton_index = symptomIndex === -1 ? symptomIndex.length - 1 : symptomIndex
+      return row
+    })
+
+    const observations = rows.reduce((accumulator, current) => {
+      let accumulatorIndex = accumulator.findIndex((item) => {
+        return item.symptom === current['opoint-reclassified.tree.canopy.symptoms']
+      })
+      if (accumulatorIndex === -1) {
+        const accumulatorItem = {
+          symptom: current['opoint-reclassified.tree.canopy.symptoms'],
+          symptomIndex: current._sympton_index,
+          observations: 1,
+        }
+        accumulator.push(accumulatorItem)
+      }
+      else {
+        accumulator[accumulatorIndex].observations++
+      }
+      return accumulator
+    }, [])
+      .sort((a, b) => {
+        if (a.symptomIndex < b.symptomIndex) {
+          console.log('less')
+          return -1
+        }
+        if (a.symptomIndex > b.symptomIndex) return 1
+        return 0
+      })
+
+    const bar = Plot.plot({
+      x: { label: 'Observations' },
+      y: {
+        label: 'Tree Canopy Symptom',
+        domain: observations.map(o => o.symptom),
+      },
+      marginLeft: 20,
+      marks: [
+        Plot.barX(observations, {
+          x: "observations",
+          y: "symptom",
+          fill: (d) => symptoms[d.symptomIndex].color,
+        }),
+        Plot.axisY({textAnchor: "start", fill: "black", dx: 14, tickSize: 0}),
+      ],
+    })
+    const barEl = document.querySelector("#bar")
+    barEl.append(bar)
+
+    const box = Plot.plot({
+      x: {
+        grid: true,
+        inset: 0,
+        label: 'Distance to stream (m)'
+      },
+      y: {
+        label: 'Tree Canopy Symptom',
+        domain: observations.map(o => o.symptom),
+      },
+      marginLeft: 20,
+      marks: [
+        Plot.boxX(rows, {
+          x: "npoint-dist",
+          y: "opoint-reclassified.tree.canopy.symptoms",
+          fill: (d) => {
+            const symptom = symptoms.find(s => s.symptom === d['opoint-reclassified.tree.canopy.symptoms'])
+            if (!symptom) return 'lightgrey'
+            return symptom.color
+          },
+        }),
+        Plot.axisY({textAnchor: "start", fill: "black", dx: 0, tickSize: 0, text: () => ''}),
+      ],
+    })
+    const boxEl = document.querySelector("#box")
+    boxEl.append(box)
+  }
+</script>
