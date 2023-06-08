@@ -42,7 +42,7 @@ Then run `node streams-spatial-index.js` in order to create the spatial index of
 
 Then run `node redcedar-poi.js` in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries.
 
-# Distance to Streams
+# Distance to Waterways
 
 Then run `node distance-to-stream.js` to do the final analysis. This will produce two geojson files.
 
