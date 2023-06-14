@@ -32,7 +32,7 @@ Below is a list of active analyses and contributors. Each analysis has a page de
     + Cluster analysis
     + Rural vs urban
   + Hypothesis tests
-    + Distance from waterways
+    + [Distance from waterways](./distance-to-waterways/)
     + Soil Depth
   + Explore one of the above or add your jam here..
 
