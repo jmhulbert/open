@@ -1,6 +1,6 @@
 ---
 title: "Distance to Waterways - WA DNR hydrography"
-author: 'Contributors: Joey Hulbert, Rubén Rodríguez'
+author: 'Contributors: Rubén Rodríguez, Joey Hulbert'
 output: html_document
 ---
 
@@ -178,3 +178,5 @@ A supplementary map can be found in this same directory (`map.qgz`). It carries 
     boxEl.append(box)
   }
 </script>
+
+![](~/ServerFiles/open/redcedar/images/DistanceWaterWhatcom.jpg)

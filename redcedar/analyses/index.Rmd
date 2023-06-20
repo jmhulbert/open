@@ -22,7 +22,11 @@ Below is a list of active analyses and contributors. Each analysis has a page de
 * Analyses
   + Random forests Analyses
     + [climate data](https://jmhulbert.github.io/open/redcedar/analyses/random-forests/climate)
-    + [soils data](https://jmhulbert.github.io/open/redcedar/analyses/random-forests/soils)
+    + soils data
+      + [xPolaris data](https://jmhulbert.github.io/open/redcedar/analyses/random-forests/soils/xpolaris)
+      + [gssurgo data - Brendan Farrell](https://jmhulbert.github.io/open/redcedar/analyses/random-forests/soils/gssurgo)
+    + [topo data](https://jmhulbert.github.io/open/redcedar/analyses/random-forests/topo/)
+    + [combined data](https://jmhulbert.github.io/open/redcedar/analyses/random-forests/combined/)
   + Spatial Analyses
     + Spatial autocorrelation
     + Distribution overlays with historic and predicted maps (eg Crookston et al 2009)
@@ -32,7 +36,7 @@ Below is a list of active analyses and contributors. Each analysis has a page de
     + Cluster analysis
     + Rural vs urban
   + Hypothesis tests
-    + [Distance from waterways](./distance-to-waterways/)
+    + [Distance from waterways - Rubén Rodriguez](./distance-to-waterways/)
     + Soil Depth
   + Explore one of the above or add your jam here..
 
