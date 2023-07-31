@@ -401,33 +401,32 @@ analysis is carried out in node.js.</p>
 18.31.0 is active in your terminal.</p>
 <p>Run <code>npm install</code> to get the dependencies.</p>
 <p>Given the large file size of the streams shapefile it is omitted from
-this repository, but can be downloaded by running
-<code>node fetch-streams-shapefile.js</code>. This is saved to a
-<code>wa-dnr-streams</code> directory.</p>
-<p>Then run <code>node streams-spatial-index.js</code> in order to
-create the spatial index of the streams shapefile, and give an interface
-for being able to query for individual features based on a point’s
-nearest neighbors. This is saved to a <code>wa-dnr-streams-db</code>
-directory. This can take some time. Run the command prefixed with
-<code>DEBUG=*</code> to log out progress of every 10,000th item being
-processed.</p>
-<p>Then run <code>node redcedar-poi.js</code> in order to create a
-geojson point feature collection of the observation data, filtering out
-observations without valid [longitude, latitude] attributes, and that
-reside outside of the WA DNR watershed boundaries.</p>
+this repository, but can be downloaded by running <a href="./fetch-streams-shapefile.js"><code>node fetch-streams-shapefile.js</code></a>.
+This is saved to a <code>wa-dnr-streams</code> directory.</p>
+<p>Then run <a href="./streams-spatial-index.js"><code>node streams-spatial-index.js</code></a>
+in order to create the spatial index of the streams shapefile, and give
+an interface for being able to query for individual features based on a
+point’s nearest neighbors. This is saved to a
+<code>wa-dnr-streams-db</code> directory. This can take some time. Run
+the command prefixed with <code>DEBUG=*</code> to log out progress of
+every 10,000th item being processed.</p>
+<p>Then run <a href="./redcedar-poi.js"><code>node redcedar-poi.js</code></a> in order
+to create a geojson point feature collection of the observation data,
+filtering out observations without valid [longitude, latitude]
+attributes, and that reside outside of the WA DNR watershed
+boundaries.</p>
 </div>
 <div id="distance-to-waterways" class="section level1">
 <h1>Distance to Waterways</h1>
-<p>Then run <code>node distance-to-stream.js</code> to do the final
-analysis. This will produce two geojson files.</p>
+<p>Then run <a href="./distance-to-stream.js"><code>node distance-to-stream.js</code></a>
+to do the final analysis. This will produce two geojson files.</p>
 <ol style="list-style-type: decimal">
 <li>A point feature collection of the points on the stream that
-represent the closest point to a stream.
-<code>redcedar-poi-nearest-k10.geojson</code>. The distance between
-observation and stream is stored in meters in the field
-<code>npoint-dist</code>. The observation attributes are prefixed with
-<code>opoint</code>. The closest stream attributes are prefixed with
-<code>nline</code>.</li>
+represent the closest point to a stream. <a href="./redcedar-poi-nearest-k10.geojson"><code>redcedar-poi-nearest-k10.geojson</code></a>.
+The distance between observation and stream is stored in meters in the
+field <code>npoint-dist</code>. The observation attributes are prefixed
+with <code>opoint</code>. The closest stream attributes are prefixed
+with <code>nline</code>.</li>
 <li>A line feature collection that shows the connections between
 observations and the closest point on a stream. This is useful to
 visually spot check results.</li>
@@ -444,6 +443,11 @@ distance values across each of the Tree Symptom values.</p>
 </div>
 <p>A supplementary map can be found in this same directory
 (<code>map.qgz</code>). It carries all data used for this analysis.</p>
+<p><a href="./redcedar-poi-nearest-k10.csv"><code>redcedar-poi-nearest-k10.csv</code></a>
+is also available in this repo. This is the same as the
+<code>.geojson</code> file of the same name, but with the attributes
+<code>npoint-lon</code> &amp; <code>npoint-lat</code> to represent where
+that nearest point to the stream is. This was produced by running <a href="./redcedar-poi-nearest-geojson-to-csv.js"><code>node redcedar-poi-nearest-geojson-to-csv.js redcedar-poi-nearest-k10.geojson redcedar-poi-nearest-k10.csv</code></a>.</p>
 <script type="module">
   // These charts were iterated on in this Observable
   // [notebook](https://observablehq.com/d/d834eb92e2f1a5a6).

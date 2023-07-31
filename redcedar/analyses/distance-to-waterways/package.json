@@ -28,8 +28,10 @@
     "csv-writer": "^1.6.0",
     "debug": "^4.3.4",
     "flatbush": "^4.2.0",
+    "geojson-stream": "^0.1.0",
     "install": "^0.13.0",
     "level": "^8.0.0",
+    "mississippi": "^4.0.0",
     "npm": "^9.6.7",
     "proj4": "^2.9.0",
     "unzipper": "^0.10.14"

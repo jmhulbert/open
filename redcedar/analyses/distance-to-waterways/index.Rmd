@@ -36,17 +36,17 @@ From this directory, run `nvm use` to ensure the node 18.31.0 is active in your 
 
 Run `npm install` to get the dependencies.
 
-Given the large file size of the streams shapefile it is omitted from this repository, but can be downloaded by running `node fetch-streams-shapefile.js`. This is saved to a `wa-dnr-streams` directory.
+Given the large file size of the streams shapefile it is omitted from this repository, but can be downloaded by running [`node fetch-streams-shapefile.js`](./fetch-streams-shapefile.js). This is saved to a `wa-dnr-streams` directory.
 
-Then run `node streams-spatial-index.js` in order to create the spatial index of the streams shapefile, and give an interface for being able to query for individual features based on a point's nearest neighbors. This is saved to a `wa-dnr-streams-db` directory. This can take some time. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed.
+Then run [`node streams-spatial-index.js`](./streams-spatial-index.js) in order to create the spatial index of the streams shapefile, and give an interface for being able to query for individual features based on a point's nearest neighbors. This is saved to a `wa-dnr-streams-db` directory. This can take some time. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed.
 
-Then run `node redcedar-poi.js` in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries.
+Then run [`node redcedar-poi.js`](./redcedar-poi.js) in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries.
 
 # Distance to Waterways
 
-Then run `node distance-to-stream.js` to do the final analysis. This will produce two geojson files.
+Then run [`node distance-to-stream.js`](./distance-to-stream.js) to do the final analysis. This will produce two geojson files.
 
-1. A point feature collection of the points on the stream that represent the closest point to a stream. `redcedar-poi-nearest-k10.geojson`. The distance between observation and stream is stored in meters in the field `npoint-dist`. The observation attributes are prefixed with `opoint`. The closest stream attributes are prefixed with `nline`.
+1. A point feature collection of the points on the stream that represent the closest point to a stream. [`redcedar-poi-nearest-k10.geojson`](./redcedar-poi-nearest-k10.geojson). The distance between observation and stream is stored in meters in the field `npoint-dist`. The observation attributes are prefixed with `opoint`. The closest stream attributes are prefixed with `nline`.
 2. A line feature collection that shows the connections between observations and the closest point on a stream. This is useful to visually spot check results.
 
 
@@ -56,6 +56,8 @@ The following charts summarize the data produced. First is a bar chart that show
 <div id="box"></div>
 
 A supplementary map can be found in this same directory (`map.qgz`). It carries all data used for this analysis.
+
+[`redcedar-poi-nearest-k10.csv`](./redcedar-poi-nearest-k10.csv) is also available in this repo. This is the same as the `.geojson` file of the same name, but with the attributes `npoint-lon` & `npoint-lat` to represent where that nearest point to the stream is. This was produced by running [`node redcedar-poi-nearest-geojson-to-csv.js redcedar-poi-nearest-k10.geojson redcedar-poi-nearest-k10.csv`](./redcedar-poi-nearest-geojson-to-csv.js).
 
 <script type="module">
   // These charts were iterated on in this Observable
