@@ -44,7 +44,7 @@ async function execute ({ pathToShp, pathToDb }) {
   await shpIndex({ shp, db })
 }
 
-function fid (i) {
+export const fid = (i) => {
   return `fid|${i}`
 }
 

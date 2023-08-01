@@ -39,6 +39,8 @@ import fs from 'node:fs/promises'
 import bbox from '@turf/bbox'
 import bboxPolygon from '@turf/bbox-polygon'
 
+import {fid} from './streams-spatial-index.js'
+
 const debug = Debug('nearest')
 
 main()
@@ -73,11 +75,6 @@ async function readJson (p) {
 
 async function writeJson (p, d) {
   await fs.writeFile(p, JSON.stringify(d, null, 2))
-}
-
-// the feature key for the leveldb of the spatial index
-function fid (i) {
-  return `fid|${i}`
 }
 
 function kilometersToMeters (km) {
