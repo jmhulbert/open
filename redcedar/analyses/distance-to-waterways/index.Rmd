@@ -20,9 +20,9 @@ library(knitr)
 
 # Approach
 
-This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA DNR watersheds](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about) and calculate the distance to the [stream centerlines from WA DNR](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about).
+This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA DNR watersheds](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about) and calculate the distance to the WA DNR hydrograph using both [water courses](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about) and [water bodies](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-water-bodies-forest-practices-regulation/about).
 
-The result will be a point geo file that represents where on the stream is the closest point, carrying the metadata as to which redcedar observation is responsible for the point, and which stream id the point sits on.
+The result will be a point geo file that represents where on the stream is the closest point, carrying the metadata as to which redcedar observation is responsible for the point, and which hydrography feature the point sits on.
 
 # Data Wrangling
 
@@ -36,18 +36,18 @@ From this directory, run `nvm use` to ensure the node 18.31.0 is active in your 
 
 Run `npm install` to get the dependencies.
 
-Given the large file size of the streams shapefile it is omitted from this repository, but can be downloaded by running [`node fetch-streams-shapefile.js`](./fetch-streams-shapefile.js). This is saved to a `wa-dnr-streams` directory.
+Given the large file size of the hydrography shapefiles they are omitted from this repository, but can be downloaded by running [`node fetch-hydrography.js`](./fetch-hydrography.js). This is saved to a `wa-dnr-hydrography` directory.
 
-Then run [`node streams-spatial-index.js`](./streams-spatial-index.js) in order to create the spatial index of the streams shapefile, and give an interface for being able to query for individual features based on a point's nearest neighbors. This is saved to a `wa-dnr-streams-db` directory. This can take some time. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed.
+Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order to create the database of hydrography features including a spatial index. This will produce affordances for querying nearest neighbors, as well as the ability to access any one feature based on the nearest neighbor query. This database is saved to a `hydrography-db` directory. This can take some time as there are 1,314,690 stream features. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed. Water body polygon features are converted to 
 
-Then run [`node redcedar-poi.js`](./redcedar-poi.js) in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries.
+Then run [`node redcedar-poi.js`](./redcedar-poi.js) in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries. This file is saved as [redcedar-poi.geojson](./redcedar-poi.geojson). WA DNR data is downloaded with the projection EPSG:3857, so the redcedar POI data is reprojected into the same coordinate system.
 
 # Distance to Waterways
 
-Then run [`node distance-to-stream.js`](./distance-to-stream.js) to do the final analysis. This will produce two geojson files.
+Then run [`node distance-to-hydrography`](./distance-to-hydrography) to do the final analysis. This will produce two geojson files.
 
-1. A point feature collection of the points on the stream that represent the closest point to a stream. [`redcedar-poi-nearest-k10.geojson`](./redcedar-poi-nearest-k10.geojson). The distance between observation and stream is stored in meters in the field `npoint-dist`. The observation attributes are prefixed with `opoint`. The closest stream attributes are prefixed with `nline`.
-2. A line feature collection that shows the connections between observations and the closest point on a stream. This is useful to visually spot check results.
+1. A point feature collection of the points on the stream that represent the closest point to a stream. [`redcedar-poi-nearest-k1.geojson`](./redcedar-poi-nearest-k1.geojson). The distance between observation and hydrography feture is stored in meters in the field `npoint-dist`. The observation attributes are prefixed with `opoint`. The closest stream attributes are prefixed with `nfeat`. If the observation sits within a water body, it will have an `npoint-dist` of 0.
+2. A line feature collection that shows the connections between observations and the closest point on a stream. [redcedar-poi-nearest-connections-k1.geojson](./redcedar-poi-nearest-connections-k1.geojson) This is useful to visually spot check results.
 
 
 The following charts summarize the data produced. First is a bar chart that shows the total number of observations for each Tree Canopy Symptom value. Following is a boxplot that shows the distribution of distance values across each of the Tree Symptom values.
@@ -57,7 +57,11 @@ The following charts summarize the data produced. First is a bar chart that show
 
 A supplementary map can be found in this same directory (`map.qgz`). It carries all data used for this analysis.
 
-[`redcedar-poi-nearest-k10.csv`](./redcedar-poi-nearest-k10.csv) is also available in this repo. This is the same as the `.geojson` file of the same name, but with the attributes `npoint-lon` & `npoint-lat` to represent where that nearest point to the stream is. This was produced by running [`node redcedar-poi-nearest-geojson-to-csv.js redcedar-poi-nearest-k10.geojson redcedar-poi-nearest-k10.csv`](./redcedar-poi-nearest-geojson-to-csv.js).
+[`redcedar-poi-nearest-k1.csv`](./redcedar-poi-nearest-k1.csv) is also available in this repo. This is the same as the `.geojson` file of the same name, but with the attributes `npoint-lon` & `npoint-lat` to represent where that nearest point to the stream is. This was produced by running [`node redcedar-poi-nearest-geojson-to-csv.js`](./redcedar-poi-nearest-geojson-to-csv.js).
+
+To expand on this analysis, Joey suggested looking into distances to streams by category. The [metadata](https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WCHYDRO.pdf) outlines many attributes, of which we will inspect the `WC_PERIOD_LABEL_NM` attribute, which has the following values: Ephemeral, Intermittent, Perennial, Unknown.
+
+TODO PICKUP: do we want to do a quick analysis of how many meters of each exist in the dataset just to get a bit of an idea of the underlying values?
 
 <script type="module">
   // These charts were iterated on in this Observable
@@ -66,7 +70,7 @@ A supplementary map can be found in this same directory (`map.qgz`). It carries 
   main()
   async function main () {
     // source data
-    const response = await fetch('redcedar-poi-nearest-k10.geojson')
+    const response = await fetch('redcedar-poi-nearest-k1.geojson')
     const geojson = await response.json()
 
     // data as array to visualize

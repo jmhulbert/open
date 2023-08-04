@@ -1,70 +1,41 @@
-import {createObjectCsvWriter} from 'csv-writer'
-import fs from 'node:fs'
-import {parse} from 'geojson-stream'
-import {pipe, through} from 'mississippi'
+import path from 'node:path'
+import {geojson2csv} from './geojson-to-csv.js'
 
-const [inFilePath, outFilePath] = process.argv.slice(2)
+const geojsonFilePath = path.join(process.cwd(), 'redcedar-poi-nearest-k1.geojson')
+const csvFilePath = path.join(process.cwd(), 'redcedar-poi-nearest-k1.csv')
 
-function help () {
-  console.log(`
-    usage:
+const additionalFieldSpec = [{
+    key: 'npoint-lon',
+    value: function (feature) {
+      return feature.geometry.coordinates[0]
+    }
+  },
+  {
+    key: 'npoint-lat',
+    value: function (feature) {
+      return feature.geometry.coordinates[1]
+    }
+  }
+]
 
-    node geojson-to-csv.js {inFilePath} {outFilePath}
-
-    {inFilePath} - the geojson path to read in
-    {outFilePath} - the csv path to write to
-  `)
-}
-
-if (!inFilePath || !outFilePath) {
-  help()
-  process.exit()
-}
-
-const header = await getHeader(['npoint-lon', 'npoint-lat'])
-const csv = createObjectCsvWriter({
-  path: outFilePath,
-  header: header.map(f => { return { id: f, title: f }}),
-})
-await writeCsv()
-
-async function getHeader (startingSet) {
-  let header = new Set([...startingSet])
-  return new Promise((resolve, reject) => {
-    pipe(
-      fs.createReadStream(inFilePath),
-      parse((feature, index) => {
-        return Object.keys(feature.properties)
-      }),
-      through.obj((fieldNames, enc, next) => {
-        header = new Set([...header, ...fieldNames])
-        next()
-      }),
-      function finish (error) {
-        if (error) return reject(error)
-        resolve([...header])
-      })
-  }) 
-}
-
-async function writeCsv () {
-  return new Promise((resolve, reject) => {
-    pipe(
-      fs.createReadStream(inFilePath),
-      parse((feature, index) => {
-        return {
-          ...feature.properties,
-          'npoint-lon': feature.geometry.coordinates[0],
-          'npoint-lat': feature.geometry.coordinates[1],
-        }
-      }),
-      through.obj(async (row, enc, next) => {
-        csv.writeRecords([row]).then(next).catch(next)
-      }),
-      function finish (error) {
-        if (error) return reject(error)
-        resolve()
+const additionalFields = additionalFieldSpec.map(s => s.key)
+const featureToCsvRow = (feature) => {
+  return {
+    ...feature.properties,
+    ...(additionalFieldSpec.map((field) => {
+      return { [field.key]: field.value(feature) }
+    }).reduce((acc, curr) => {
+      return {
+        ...acc,
+        ...curr,
       }
-    )
-  })
+    }, {}))
+  }
 }
+
+await geojson2csv({
+  geojsonFilePath,
+  csvFilePath,
+  featureToCsvRow,
+  additionalFields,
+})

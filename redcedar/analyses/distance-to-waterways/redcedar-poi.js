@@ -1,9 +1,17 @@
 /**
+ * Prerequisites for running this file include running:
+ *
+ * `$ node fetch-hydrography.js`
+ * 
  * Create the `redcedar-poi.geojson` file. The input of this is 
  * the `data-modified.csv` file of observations, which gets spatially
  * intersected with the WA DNR watersheds shapefile. If a point in the
  * observations file falls within one of the watersheds, it is preserved
- * and written to the `redcedar-poi.geojson` file for further processing
+ * and written to the `redcedar-poi.geojson` file for further processing.
+ *
+ * The inpute `data-modified.csv` lon, lat coordinates use the coordinate
+ * system EPSG:4326, so they are reprojected into EPSG:3857 to align
+ * with the other hydrography features.
  */
 
 import fs from 'node:fs'
@@ -11,9 +19,10 @@ import fsp from 'node:fs/promises'
 import csv from 'csv-parser'
 import path from 'node:path'
 import {point, multiPolygon} from '@turf/helpers'
-import contains from '@turf/boolean-contains'
+import pointInPolygon from '@turf/boolean-point-in-polygon'
 import proj from 'proj4'
 import shapefile from '@rubenrodriguez/shapefile'
+import {hydrographyDir, dataDir, redcedarPoiGeojsonPath} from './common.js'
 import Debug from 'debug'
 
 const debug = Debug('redcedar-poi')
@@ -21,9 +30,9 @@ const debug = Debug('redcedar-poi')
 main()
 
 async function main () {
-  const pathToPointsInput = path.join(process.cwd(), '..', '..', 'data', 'data-modified.csv')
+  const pathToPointsInput = path.join(dataDir, 'data-modified.csv')
   const pointInputProj = 'EPSG:4326'
-  const pathToPolygon = path.join(process.cwd(), '..', '..', 'data', 'Watershed_Administrative_Units_-_Forest_Practices_Regulation', 'Watershed_Administrative_Units_-_Forest_Practices_Regulation.shp')
+  const pathToPolygon = path.join(process.cwd(), hydrographyDir, 'Watershed_Administrative_Units_-_Forest_Practices_Regulation.shp')
   const polygonProj = 'EPSG:3857'
   const pointOutputProj = 'EPSG:3857'
   const {poi} = await execute({
@@ -34,7 +43,7 @@ async function main () {
     pointOutputProj,
   })
 
-  const pathToPointsOutput = path.join(process.cwd(), 'redcedar-poi.geojson')
+  const pathToPointsOutput = redcedarPoiGeojsonPath
   await fsp.writeFile(pathToPointsOutput, JSON.stringify(poi, null, 2))
 }
 
@@ -91,7 +100,7 @@ async function execute ({
         const pntProjected = proj(pointInputProj, polygonProj, pnt)
         let isContained = false
         for (const poly of polygonsFc.features) {
-          if (contains(poly, point(pntProjected))) {
+          if (pointInPolygon(point(pntProjected), poly)) {
             isContained = true
             break
           }
