@@ -24,6 +24,7 @@
     "@turf/helpers": "^6.5.0",
     "@turf/nearest-point-on-line": "^6.5.0",
     "@turf/point-to-line-distance": "^6.5.0",
+    "@turf/polygon-to-line": "^6.5.0",
     "axios": "^1.4.0",
     "bytewise": "^1.1.0",
     "csv-parser": "^3.0.0",

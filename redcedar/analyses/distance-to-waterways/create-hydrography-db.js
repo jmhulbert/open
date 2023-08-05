@@ -1,6 +1,7 @@
 /**
- * Prerequisite is to download the WA DNR hydrography to the `hydrography`
- * directory, using the command `node fetch-hydrography.js`
+ * Prerequisites for running this file include running:
+ *
+ * `$ node fetch-hydrography.js`
  * 
  * Create a [spatial-db](./spatial-db) instance that holds the WA DNR
  * water courses and water bodies features, giving the ability to fetch
@@ -26,6 +27,7 @@
 
 import shapefile from '@rubenrodriguez/shapefile'
 import bboxPolygon from '@turf/bbox-polygon'
+import polygonToLine from '@turf/polygon-to-line'
 import Debug from 'debug'
 import path from 'path'
 import {hydrographyDir} from './common.js'
@@ -66,9 +68,9 @@ const db = SpatialDB(dbSpec)
 const onPolygon = ({ filterFeature }) => async ({ result }) => {
   const feature = result.value
   if (!filterFeature({ feature })) return
-  // TODO: make a polyline version of this feature and save it
-  // down as well
+  const line = polygonToLine(feature)
   await db.putPolygon({ feature })
+  await db.putLine({ feature: line })
 }
 const onLine = ({ filterFeature }) => async ({ result }) => {
   const feature = result.value
