@@ -61,7 +61,7 @@ import {pipe, through} from 'mississippi'
 import {parse} from 'geojson-stream'
 import {stringify} from 'JSONStream'
 import {SpatialDB, dbSpec} from './spatial-db.js'
-import {redcedarPoiGeojsonPath} from './common.js'
+import {redcedarPoiGeojsonPath, nearestSpec, pipePromise} from './common.js'
 import Debug from 'debug'
 import proj from 'proj4'
 
@@ -70,81 +70,12 @@ const db = SpatialDB(dbSpec)
 
 const debug = Debug('nearest')
 const knearest = 10
-const baseFileName = 'redcedar-poi-nearest'
-
-// different analysis to run through
-const analysisSpecs = [
-  {
-    name: 'period-all',
-    include: new Set(['Unknown', 'Ephemeral', 'Intermittent', 'Perennial']),
-  },
-  {
-    name: 'period-min-eph',
-    include: new Set(['Ephemeral', 'Intermittent', 'Perennial']),
-  },
-  {
-    name: 'period-min-int',
-    include: new Set(['Intermittent', 'Perennial']),
-  },
-  {
-    name: 'period-per',
-    include: new Set(['Perennial']),
-  },
-]
+const {analysisParams, idSpec} = nearestSpec
 
 const projSpec = {
   source: 'EPSG:3857',
   nearest: 'EPSG:4326',
 }
-
-const idSpec = {
-  // this is the id based on the input redcedar-poi.geojson file
-  opointId: (f) => `id:${f.properties?.id}`,
-  // this is the id based on the nearest feature, weather thats
-  // a water body (WB_ID) or a water course (WC)
-  nfeatId: (f) => {
-    if (f.properties?.WB_ID) return `WB_ID:${f.properties.WB_ID}`
-    if (f.properties?.WC_ID) return `WC_ID:${f.properties.WC_ID}`
-  }
-}
-
-const stringifyArgs = [
-  `{
-    "crs": {
-      "type": "name",
-      "properties": {
-        "name": "urn:ogc:def:crs:EPSG::3857"
-      }
-    },
-    "type": "FeatureCollection",
-    "features": [
-  `,
-  '\n,\n',
-  ']}'
-]
-
-const analysisParams = analysisSpecs.map((spec) => {
-  const baseResultFileName = `${baseFileName}-${spec.name}`
-  return {
-    analysisSpec: spec,
-    resultSpecs: [
-      {
-        valueFn: (row) => row.npoint,
-        fileName: `${baseResultFileName}-npoint.geojson`,
-        stringifyArgs,
-      },
-      {
-        valueFn: (row) => row.nconn,
-        fileName: `${baseResultFileName}-nconn.geojson`,
-        stringifyArgs,
-      }
-    ],
-    filterFeature: (feature) => {
-      const period = feature.properties?.WC_PERIO_1 || feature.properties?.WB_PERIO_1
-      return spec.include.has(period)
-    }
-  }
-})
 
 async function Analysis ({ db, ids, projSpec, knearest=1 }) {
   const nearestOptions = { units: 'kilometers' }
@@ -310,16 +241,6 @@ for (const params of analysisParams) {
     analysis.poiStream(),
     ResultWriter(params.resultSpecs)
   )
-}
-
-function pipePromise (...args) {
-  return new Promise((resolve, reject) => {
-    const done = (error) => {
-      if (error) reject(error)
-      else resolve()
-    }
-    pipe.apply(null, args.concat([done]))
-  })
 }
 
 function ResultWriter (resultSpecs) {
