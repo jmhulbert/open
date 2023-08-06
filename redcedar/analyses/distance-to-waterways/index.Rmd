@@ -231,7 +231,7 @@ A supplementary map can be found in this same directory (`map.qgz`). It carries 
   for (const spec of common.analysisSpecs) {
     const heading = document.createElement('p')
     const description = document.createElement('p')
-    heading.innerHTML = `<b>subanalysis: ${spec.name}</b>`
+    heading.innerHTML = `<strong>subanalysis: ${spec.name}</strong>`
     description.innerText = `Includes hydrography features with the following period (\`WB_PERIOD_LABEL_NM\` or \`WC_PERIOD_LABEL_NM\`) values: ${spec.include.join(', ')}.`
     boxes.append(heading)
     boxes.append(description)
