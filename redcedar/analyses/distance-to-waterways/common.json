@@ -1,0 +1,20 @@
+{
+  "analysisSpecs": [
+    {
+      "name": "period-all",
+      "include": ["Unknown", "Ephemeral", "Intermittent", "Perennial"]
+    },
+    {
+      "name": "period-min-eph",
+      "include": ["Ephemeral", "Intermittent", "Perennial"]
+    },
+    {
+      "name": "period-min-int",
+      "include": ["Intermittent", "Perennial"]
+    },
+    {
+      "name": "period-per",
+      "include": ["Perennial"]
+    }
+  ]
+}

@@ -87,8 +87,8 @@ async function Analysis ({ db, ids, projSpec, knearest=1 }) {
   const polygonIndex = await db.getPolygonIndex()
 
   let filterFeature = () => true
-  const setFilterFeature = (fn) => {
-    filterFeature = fn
+  const setParams = (params) => {
+    filterFeature = params.filterFeature
   }
 
   async function findIds ({ index, x, y, get, cknearest, offset=0, ids=[] }) {
@@ -218,7 +218,7 @@ async function Analysis ({ db, ids, projSpec, knearest=1 }) {
   })
 
   return {
-    setFilterFeature,
+    setParams,
     poiStream,
   }
 }
@@ -233,7 +233,7 @@ const analysis = await Analysis({
 for (const params of analysisParams) {
   debug('analysis:', params.analysisSpec.name)
 
-  analysis.setFilterFeature(params.filterFeature)
+  analysis.setParams(params.analysisSpec)
 
   await pipePromise(
     fs.createReadStream(redcedarPoiGeojsonPath),

@@ -1,32 +1,24 @@
 import path from 'node:path'
 import {pipe} from 'mississippi'
 
+import common from './common.json' assert { type: 'json' };
+
 export const hydrographyDir = 'hydrography'
 
 export const dataDir = path.join(process.cwd(), '..', '..', 'data')
 
 export const redcedarPoiGeojsonPath = path.join(process.cwd(), 'redcedar-poi.geojson')
 
+export const analysisSpecs = common.analysisSpecs.map(spec => {
+  return {
+    ...spec,
+    include: new Set([...spec.include]),
+  }
+})
+
 export const nearestSpec = {
   baseFileName: 'redcedar-poi-nearest',
-  analysisSpecs: [
-    {
-      name: 'period-all',
-      include: new Set(['Unknown', 'Ephemeral', 'Intermittent', 'Perennial']),
-    },
-    {
-      name: 'period-min-eph',
-      include: new Set(['Ephemeral', 'Intermittent', 'Perennial']),
-    },
-    {
-      name: 'period-min-int',
-      include: new Set(['Intermittent', 'Perennial']),
-    },
-    {
-      name: 'period-per',
-      include: new Set(['Perennial']),
-    },
-  ],
+  analysisSpecs,
   idSpec: {
     poiId: (poi) => poi.properties?.id,
     // this is the id based on the input redcedar-poi.geojson file
@@ -64,7 +56,13 @@ const stringifyArgs = [
 nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {
   const baseResultFileName = `${nearestSpec.baseFileName}-${spec.name}`
   return {
-    analysisSpec: spec,
+    analysisSpec: {
+      ...spec,
+      filterFeature: (feature) => {
+        const period = feature.properties?.WC_PERIO_1 || feature.properties?.WB_PERIO_1
+        return spec.include.has(period)
+      },
+    },
     resultSpecs: [
       {
         type: 'npoint',
@@ -79,10 +77,16 @@ nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {
         stringifyArgs,
       }
     ],
-    filterFeature: (feature) => {
-      const period = feature.properties?.WC_PERIO_1 || feature.properties?.WB_PERIO_1
-      return spec.include.has(period)
-    }
+    csvFields: [
+      {
+        key: `${spec.name}-dist`,
+        valueFn: ({ nconn }) => nconn.properties.dist
+      },
+      {
+        key: `${spec.name}-nfeat-id`,
+        valueFn: ({ nconn }) => nconn.properties['nfeat-id']
+      },
+    ],
   }
 })
 
