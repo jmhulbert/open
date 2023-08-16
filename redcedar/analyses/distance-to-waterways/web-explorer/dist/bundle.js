@@ -36,6 +36,7 @@ const store = (state, emitter) => {
       loading: true,
     },
     splitPane: {
+      layout: 'horizontal',
       left: {
         open: true,
       },
@@ -235,6 +236,18 @@ const store = (state, emitter) => {
       state.components.splitPane.left.open = true
       state.components.splitPane.right.open = true
     }
+    emitter.emit('render')
+  })
+
+  emitter.on('split-pane:set-layout:horizontal', () => {
+    if (state.components.splitPane.layout === 'horizontal') return
+    state.components.splitPane.layout = 'horizontal'
+    emitter.emit('render')
+  })
+
+  emitter.on('split-pane:set-layout:vertical', () => {
+    if (state.components.splitPane.layout === 'vertical') return
+    state.components.splitPane.layout = 'vertical'
     emitter.emit('render')
   })
 }
@@ -15248,7 +15261,6 @@ class MapComponent extends Component {
   }
 
   load (element) {
-    // TODO replace first load with a spinner to show we are loading data
     Map({ container: element })
       .then(({ map, setTheme, setAnalysis }) => {
         this.emit('map:loaded', { map, setTheme, setAnalysis })
@@ -15928,6 +15940,9 @@ const classnames = require('classnames')
 function SplitPane ({ left, right, state, emit }) {
   const local = state.components.splitPane
 
+  const isHorizontal = local.layout === 'horizontal'
+  const isVertical = local.layout === 'vertical'
+
   return html`
     <div class="w-full h-full flex flex-col">
       <div class="grow-0">
@@ -15945,30 +15960,58 @@ function SplitPane ({ left, right, state, emit }) {
               class="ml-2"
               onclick=${toggleRight}/>
           </div>
+          <div class="flex flex-start items-center ml-8">
+            <p class="font-bold">Layout</p>
+            <div class="ml-4 flex flex-start items-center">
+              <label for="horizontal">horizontal</label>
+              <input type="radio" id="horizontal" name="layout" checked=${isHorizontal}
+                class="ml-2"
+                onclick=${setLayoutHorizontal}/>
+            </div>
+            <div class="ml-2 flex flex-start items-center">
+              <label for="vertical">vertical</label>
+              <input type="radio" id="vertical" name="layout" checked=${isVertical}
+                class="ml-2"
+                onclick=${setLayoutVertical}/>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="flex overflow-hidden">
+      <div class="${classnames({
+          'flex': true,
+          'flex-col': isVertical,
+          'overflow-hidden': true,
+          'border-t-2': true,
+          'border-black': true,
+          'border-solid': true,
+        })}">
         <div class="${classnames({
-          'h-full': true,
-          'w-full': local.left.open && !local.right.open,
-          'w-1/2': local.left.open && local.right.open,
-          'w-0': !local.left.open && local.right.open,
+          'h-full': isHorizontal,
+          'w-full': isHorizontal && local.left.open && !local.right.open,
+          'w-1/2': isHorizontal && local.left.open && local.right.open,
+          'w-0': isHorizontal && !local.left.open && local.right.open,
+          'w-full': isVertical,
+          'h-full': isVertical && local.left.open && !local.right.open,
+          'h-1/2': isVertical && local.left.open && local.right.open,
+          'h-0': isVertical && !local.left.open && local.right.open,
           'overflow-scroll': true,
-          'border-r-2': local.left.open && local.right.open,
+          'border-r-2': isHorizontal && local.left.open && local.right.open,
+          'border-b-2': isVertical && local.left.open && local.right.open,
           'border-black': true,
           'border-solid': true,
         })}">
           ${left}
         </div>
         <div class="${classnames({
-          'h-full': true,
-          'w-full': !local.left.open && local.right.open,
-          'w-1/2': local.left.open && local.right.open,
-          'w-0': local.left.open && !local.right.open,
+          'h-full': isHorizontal,
+          'w-full': isHorizontal && !local.left.open && local.right.open,
+          'w-1/2': isHorizontal && local.left.open && local.right.open,
+          'w-0': isHorizontal && local.left.open && !local.right.open,
+          'w-full': isVertical,
+          'h-full': isVertical && !local.left.open && local.right.open,
+          'h-1/2': isVertical && local.left.open && local.right.open,
+          'h-0': isVertical && local.left.open && !local.right.open,
           'overflow-scroll': true,
-          'border-t-2': true,
-          'border-black': true,
-          'border-solid': true,
         })}">
           ${right}
         </div>
@@ -15983,6 +16026,14 @@ function SplitPane ({ left, right, state, emit }) {
 
   function toggleRight () {
     emit('split-pane:toggle:right')
+  }
+
+  function setLayoutHorizontal () {
+    emit('split-pane:set-layout:horizontal')
+  }
+
+  function setLayoutVertical () {
+    emit('split-pane:set-layout:vertical')
   }
 
 }
@@ -16115,7 +16166,7 @@ class TabularComponent extends Component {
           <thead class="">
             <tr class="">
             ${headerRow.map(({ key, value }) => {
-              return html`<th class="sticky top-0 bg-white border-black border-solid border-2 px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll">${key}</th>`
+              return html`<th class="sticky top-0 bg-white border-black border-solid border-x-2 border-b-2 px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll">${key}</th>`
             })}
             </tr>
           </thead>
