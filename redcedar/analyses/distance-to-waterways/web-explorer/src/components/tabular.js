@@ -124,7 +124,7 @@ class TabularComponent extends Component {
           <thead class="">
             <tr class="">
             ${headerRow.map(({ key, value }) => {
-              return html`<th class="sticky top-0 bg-white border-black border-solid border-2 px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll">${key}</th>`
+              return html`<th class="sticky top-0 bg-white border-black border-solid border-x-2 border-b-2 px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll">${key}</th>`
             })}
             </tr>
           </thead>

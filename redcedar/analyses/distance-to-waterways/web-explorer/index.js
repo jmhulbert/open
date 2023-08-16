@@ -35,6 +35,7 @@ const store = (state, emitter) => {
       loading: true,
     },
     splitPane: {
+      layout: 'horizontal',
       left: {
         open: true,
       },
@@ -234,6 +235,18 @@ const store = (state, emitter) => {
       state.components.splitPane.left.open = true
       state.components.splitPane.right.open = true
     }
+    emitter.emit('render')
+  })
+
+  emitter.on('split-pane:set-layout:horizontal', () => {
+    if (state.components.splitPane.layout === 'horizontal') return
+    state.components.splitPane.layout = 'horizontal'
+    emitter.emit('render')
+  })
+
+  emitter.on('split-pane:set-layout:vertical', () => {
+    if (state.components.splitPane.layout === 'vertical') return
+    state.components.splitPane.layout = 'vertical'
     emitter.emit('render')
   })
 }

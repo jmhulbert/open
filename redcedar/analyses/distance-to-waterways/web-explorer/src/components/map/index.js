@@ -13,7 +13,6 @@ class MapComponent extends Component {
   }
 
   load (element) {
-    // TODO replace first load with a spinner to show we are loading data
     Map({ container: element })
       .then(({ map, setTheme, setAnalysis }) => {
         this.emit('map:loaded', { map, setTheme, setAnalysis })
