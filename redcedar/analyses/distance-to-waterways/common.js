@@ -16,6 +16,18 @@ export const analysisSpecs = common.analysisSpecs.map(spec => {
   }
 })
 
+export const projSpec = {
+  analysis: 'EPSG:3857',
+  nearest: 'EPSG:4326',
+  reporting: 'EPSG:4326',
+}
+
+
+export const RESULT_TYPES = {
+  NCONN: 'nconn',
+  NPOINT: 'npoint',
+}
+
 export const nearestSpec = {
   baseFileName: 'redcedar-poi-nearest',
   analysisSpecs,
@@ -65,13 +77,13 @@ nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {
     },
     resultSpecs: [
       {
-        type: 'npoint',
+        type: RESULT_TYPES.NPOINT,
         valueFn: (row) => row.npoint,
         fileName: `${baseResultFileName}-npoint.geojson`,
         stringifyArgs,
       },
       {
-        type: 'nconn',
+        type: RESULT_TYPES.NCONN,
         valueFn: (row) => row.nconn,
         fileName: `${baseResultFileName}-nconn.geojson`,
         stringifyArgs,

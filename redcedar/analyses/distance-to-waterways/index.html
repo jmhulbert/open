@@ -502,9 +502,13 @@ redcedar-poi-nearest-period-min-int-npoint.geojson
 redcedar-poi-nearest-period-per-npoint.geojson</code></pre>
 <pre class="bash"><code># nconn result files
 ls *.geojson | grep nconn</code></pre>
-<pre><code>redcedar-poi-nearest-period-all-nconn.geojson
+<pre><code>redcedar-poi-nearest-period-all-nconn-epsg-4326.geojson
+redcedar-poi-nearest-period-all-nconn.geojson
+redcedar-poi-nearest-period-min-eph-nconn-epsg-4326.geojson
 redcedar-poi-nearest-period-min-eph-nconn.geojson
+redcedar-poi-nearest-period-min-int-nconn-epsg-4326.geojson
 redcedar-poi-nearest-period-min-int-nconn.geojson
+redcedar-poi-nearest-period-per-nconn-epsg-4326.geojson
 redcedar-poi-nearest-period-per-nconn.geojson</code></pre>
 <div id="results" class="section level3">
 <h3>Results</h3>
@@ -529,6 +533,20 @@ is also available in this directory. This is a merger of the all the
 each subanalysis, but merged into a single file for reporting. The
 distance to hydrography features is stored in
 <code>{analysis-spec-name}-dist</code>. This was produced by running <a href="./nearest-hydrography-csv.js"><code>node nearest-hydrography-csv.js</code></a>.</p>
+<p>Below is a split pane interface to look at the tabular results of the
+<a href="./redcedar-poi-nearest-by-period.csv"><code>redcedar-poi-nearest-by-period.csv</code></a>
+alongside a map of the redcedar observations and their nearest
+connection (<code>nconn</code>) to hydrography features. Clicking a
+feature on the map will highlight the associated tabular row, and vice
+versa.</p>
+<style>
+iframe#explore {
+width: 100%;
+height: 100vh;
+border: 2px solid black;
+}
+</style>
+<iframe id="explore" src="data:text/html,%3Chtml%3E%0A%20%20%3Chead%3E%0A%20%20%20%20%3Clink%20rel%3D%22stylesheet%22%20href%3D%22main%2Ecss%22%3E%0A%20%20%3C%2Fhead%3E%0A%20%20%3Cbody%3E%0A%20%20%20%20%3Cdiv%20id%3D%22explore%22%3E%3C%2Fdiv%3E%0A%20%20%20%20%3Cscript%20src%3D%22bundle%2Ejs%22%3E%3C%2Fscript%3E%0A%20%20%3C%2Fbody%3E%0A%3C%2Fhtml%3E" referrerpolicy="origin">
 <script type="module">
   // [notebook](https://observablehq.com/d/d834eb92e2f1a5a6).
   import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
@@ -610,7 +628,7 @@ distance to hydrography features is stored in
     },
     {
       symptom: 'Other',
-      color: 'lightgrey',
+      color: 'rgb(211,211,211)',
     },
   ]
 
@@ -683,7 +701,6 @@ distance to hydrography features is stored in
     boxes.append(box)
   }
 </script>
-<p><img src="~/ServerFiles/open/redcedar/images/DistanceWaterWhatcom.jpg" /></p>
 </div>
 </div>
 

@@ -37,6 +37,7 @@
     "mississippi": "^4.0.0",
     "npm": "^9.6.7",
     "proj4": "^2.9.0",
+    "project-geojson": "^1.0.2",
     "unzipper": "^0.10.14"
   }
 }

@@ -61,7 +61,7 @@ import {pipe, through} from 'mississippi'
 import {parse} from 'geojson-stream'
 import {stringify} from 'JSONStream'
 import {SpatialDB, dbSpec} from './spatial-db.js'
-import {redcedarPoiGeojsonPath, nearestSpec, pipePromise} from './common.js'
+import {projSpec, redcedarPoiGeojsonPath, nearestSpec, pipePromise} from './common.js'
 import Debug from 'debug'
 import proj from 'proj4'
 
@@ -71,11 +71,6 @@ const db = SpatialDB(dbSpec)
 const debug = Debug('nearest')
 const knearest = 10
 const {analysisParams, idSpec} = nearestSpec
-
-const projSpec = {
-  source: 'EPSG:3857',
-  nearest: 'EPSG:4326',
-}
 
 async function Analysis ({ db, ids, projSpec, knearest=1 }) {
   const nearestOptions = { units: 'kilometers' }
@@ -176,25 +171,25 @@ async function Analysis ({ db, ids, projSpec, knearest=1 }) {
       const lineCoords = feature.geometry.type === 'LineString'
         ? lineString(
             feature.geometry.coordinates.map(p => {
-              return proj(projSpec.source, projSpec.nearest, p)
+              return proj(projSpec.analysis, projSpec.nearest, p)
             })
           )
         : multiLineString(
             feature.geometry.coordinates.map(p => {
               return p.map(sp => {
-                return proj(projSpec.source, projSpec.nearest, sp)
+                return proj(projSpec.analysis, projSpec.nearest, sp)
               })
             })
           )
 
       // projSpec.nearest
-      const pointCoords = point(proj(projSpec.source, projSpec.nearest, [x, y]))
+      const pointCoords = point(proj(projSpec.analysis, projSpec.nearest, [x, y]))
       // projSpec.nearest
       const cnpoint = nearestPointOnLine(lineCoords, pointCoords, nearestOptions)
       cnpoint.properties.dist = kilometersToMeters(cnpoint.properties.dist)
       if (cnpoint.properties.dist < npoint.properties.dist) {
-        // return to projSpec.source
-        cnpoint.geometry.coordinates = proj(projSpec.nearest, projSpec.source, cnpoint.geometry.coordinates)
+        // return to projSpec.analysis
+        cnpoint.geometry.coordinates = proj(projSpec.nearest, projSpec.analysis, cnpoint.geometry.coordinates)
         npoint = { ...cnpoint }
         nfeat = { ...feature }
       }
