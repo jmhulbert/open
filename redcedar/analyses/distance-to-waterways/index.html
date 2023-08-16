@@ -540,13 +540,18 @@ connection (<code>nconn</code>) to hydrography features. Clicking a
 feature on the map will highlight the associated tabular row, and vice
 versa.</p>
 <style>
-iframe#explore {
+iframe {
 width: 100%;
 height: 100vh;
 border: 2px solid black;
 }
 </style>
-<iframe id="explore" src="data:text/html,%3Chtml%3E%0A%20%20%3Chead%3E%0A%20%20%20%20%3Clink%20rel%3D%22stylesheet%22%20href%3D%22main%2Ecss%22%3E%0A%20%20%3C%2Fhead%3E%0A%20%20%3Cbody%3E%0A%20%20%20%20%3Cdiv%20id%3D%22explore%22%3E%3C%2Fdiv%3E%0A%20%20%20%20%3Cscript%20src%3D%22bundle%2Ejs%22%3E%3C%2Fscript%3E%0A%20%20%3C%2Fbody%3E%0A%3C%2Fhtml%3E" referrerpolicy="origin">
+<pre class="r"><code>knitr::include_url(&quot;./web-explorer/dist/index.html&quot;)</code></pre>
+<iframe src="./web-explorer/dist/index.html" width="672" height="400px" data-external="1">
+</iframe>
+<pre class="r"><code>knitr::include_url(&quot;./web-explorer/dist/index.html&quot;)</code></pre>
+<iframe src="./web-explorer/dist/index.html" width="672" height="400px" data-external="1">
+</iframe>
 <script type="module">
   // [notebook](https://observablehq.com/d/d834eb92e2f1a5a6).
   import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
