@@ -10,7 +10,7 @@ function SplitPane ({ left, right, state, emit }) {
   return html`
     <div class="w-full h-full flex flex-col">
       <div class="grow-0">
-        <div class="p-3 flex flex-start">
+        <div class="p-3 flex flex-start overflow-scroll">
           <p class="font-bold">Explore</p>
           <div class="flex flex-start items-center ml-4">
             <label for="left">tabular</label>
