@@ -6,7 +6,11 @@ The interface is built using [choo](https://www.choo.io) & [tailwind](https://ta
 
 ### development
 
-`npm run dev` or `npm start` will give a local development server.
+Development is done via node.js.
+
+1. `npm install` to get dependencies.
+2. `npm run dev` or `npm start` will give a local development server.
+
 
 ### deploy
 
