@@ -36,7 +36,7 @@ const store = (state, emitter) => {
       loading: true,
     },
     splitPane: {
-      layout: 'horizontal',
+      layout: window.innerWidth > 600 ? 'horizontal' : 'vertical',
       left: {
         open: true,
       },
