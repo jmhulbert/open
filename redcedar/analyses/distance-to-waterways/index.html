@@ -501,15 +501,20 @@ redcedar-poi-nearest-period-min-eph-npoint.geojson
 redcedar-poi-nearest-period-min-int-npoint.geojson
 redcedar-poi-nearest-period-per-npoint.geojson</code></pre>
 <pre class="bash"><code># nconn result files
-ls *.geojson | grep nconn</code></pre>
-<pre><code>redcedar-poi-nearest-period-all-nconn-epsg-4326.geojson
-redcedar-poi-nearest-period-all-nconn.geojson
-redcedar-poi-nearest-period-min-eph-nconn-epsg-4326.geojson
+ls *nconn.geojson</code></pre>
+<pre><code>redcedar-poi-nearest-period-all-nconn.geojson
 redcedar-poi-nearest-period-min-eph-nconn.geojson
-redcedar-poi-nearest-period-min-int-nconn-epsg-4326.geojson
 redcedar-poi-nearest-period-min-int-nconn.geojson
-redcedar-poi-nearest-period-per-nconn-epsg-4326.geojson
 redcedar-poi-nearest-period-per-nconn.geojson</code></pre>
+<p>To display the results on a web map, we can convert the above
+<code>nconn</code> result files from EPSG:3857 to EPSG:4326 by running
+<a href="./nconn-to-epsg-4326.js"><code>node nconn-to-epsg-4326.js</code></a>.</p>
+<pre class="bash"><code># nconn result files for web map display
+ls *nconn-epsg-4326.geojson</code></pre>
+<pre><code>redcedar-poi-nearest-period-all-nconn-epsg-4326.geojson
+redcedar-poi-nearest-period-min-eph-nconn-epsg-4326.geojson
+redcedar-poi-nearest-period-min-int-nconn-epsg-4326.geojson
+redcedar-poi-nearest-period-per-nconn-epsg-4326.geojson</code></pre>
 <div id="results" class="section level3">
 <h3>Results</h3>
 <p>The following charts summarize the data produced. First is a bar

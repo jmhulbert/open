@@ -70,7 +70,14 @@ ls *.geojson | grep npoint
 
 ```{bash comment=''}
 # nconn result files
-ls *.geojson | grep nconn
+ls *nconn.geojson
+```
+
+To display the results on a web map, we can convert the above `nconn` result files from EPSG:3857 to EPSG:4326 by running [`node nconn-to-epsg-4326.js`](./nconn-to-epsg-4326.js).
+
+```{bash comment=''}
+# nconn result files for web map display
+ls *nconn-epsg-4326.geojson
 ```
 
 ### Results
