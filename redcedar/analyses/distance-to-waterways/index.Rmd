@@ -1,6 +1,6 @@
 ---
 title: "Distance to Waterways - WA DNR hydrography"
-author: 'Contributors: Rubén Rodríguez, Joey Hulbert'
+author: 'Contributors: [Rubén Rodríguez](http://rubenrodriguez.me), Joey Hulbert'
 output: html_document
 ---
 
