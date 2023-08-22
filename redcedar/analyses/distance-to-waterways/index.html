@@ -385,10 +385,12 @@ hydrography</h1>
 iNaturalist, reduce the set of observations to those that intersect <a href="https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about">WA
 DNR watersheds</a> and calculate the distance to the WA DNR hydrography
 using both <a href="https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about">water
-courses</a> and <a href="https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-water-bodies-forest-practices-regulation/about">water
-bodies</a>.</p>
-<p>Water courses and water bodies data carry periodicity metadata.
-Values include <code>Unknown</code>, <code>Ephemeral</code>,
+courses</a> (<a href="https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WCHYDRO.pdf">metadata</a>)
+and <a href="https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-water-bodies-forest-practices-regulation/about">water
+bodies</a> (<a href="https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WBHYDRO.pdf">metadata</a>).</p>
+<p>Water courses and water bodies data carry periodicity metadata stored
+under the WC_PERIOD_LABEL_NM &amp; WB_PERIOD_LABEL_NM attributes. Values
+include <code>Unknown</code>, <code>Ephemeral</code>,
 <code>Intermittent</code>, <code>Perennial</code>. The distance to
 hydrography features analysis is carried out for subsequently more
 strict criteria, starting with including hydrography features with any
