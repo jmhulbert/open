@@ -5,6 +5,8 @@ import common from './common.json' assert { type: 'json' };
 
 export const hydrographyDir = 'hydrography'
 
+export const periodicityValues = new Set([...["Unknown", "Ephemeral", "Intermittent", "Perennial"]])
+
 export const dataDir = path.join(process.cwd(), '..', '..', 'data')
 
 export const redcedarPoiGeojsonPath = path.join(process.cwd(), 'redcedar-poi.geojson')

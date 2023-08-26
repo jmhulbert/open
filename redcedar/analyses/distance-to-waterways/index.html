@@ -448,6 +448,188 @@ are 1,314,690 water course features. Run the command prefixed with
 <code>DEBUG=*</code> to log out progress of every 10,000th item being
 processed. Water body polygon features are converted to line features so
 that they can be queried alongside water course line features.</p>
+<strong>Water Courses Summary</strong>
+<div id="water-courses-periodicity-count">
+
+</div>
+<div id="water-courses-periodicity-length">
+
+</div>
+<strong>Water Body Summary</strong>
+<div id="water-bodies-periodicity-count">
+
+</div>
+<div id="water-bodies-periodicity-length">
+
+</div>
+<div id="water-bodies-periodicity-area">
+
+</div>
+<strong>Hydrography (Water Courses + Water Bodies) Summary</strong>
+<div id="hydrography-periodicity-count">
+
+</div>
+<div id="hydrography-periodicity-length">
+
+</div>
+<script type="module">
+  import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
+
+  const results = await (await fetch('summarized-hydrography.json')).json()
+
+  const rowsForType = ({ type }) => {
+    return Object.keys(results[type]).map((periodicity) => {
+      return {
+        periodicity,
+        count: results[type][periodicity].count,
+        length: results[type][periodicity].length,
+        area: results[type][periodicity]?.area,
+      }
+    })
+  }
+
+  const hydrographyBlue = '#00ABFF'
+  const commaSeperated = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+
+  // --- courses ---
+
+  const waterCouresRows = rowsForType({ type: 'waterCourses' })
+  
+  const wcCountLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
+  const wcCount = Plot.plot({
+    x: { label: 'Count' },
+    y: {
+      label: 'Periodicity',
+      domain: waterCouresRows.map(wcCountLabel),
+    },
+    marginLeft: 20,
+    marks: [
+      Plot.barX(waterCouresRows, {
+        x: "count",
+        y: (row) => wcCountLabel(row),
+        fill: hydrographyBlue
+      }),
+      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+    ],
+  })
+  const wcCountEl = document.querySelector('#water-courses-periodicity-length')
+  wcCountEl.append(wcCount)
+
+  const wcLengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
+  const wcLength = Plot.plot({
+    x: { label: 'Length (m)' },
+    y: {
+      label: 'Periodicity',
+      domain: waterCouresRows.map(wcLengthLabel),
+    },
+    marginLeft: 20,
+    marks: [
+      Plot.barX(waterCouresRows, {
+        x: "count",
+        y: (row) => wcLengthLabel(row),
+        fill: hydrographyBlue
+      }),
+      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+    ],
+  })
+  const wcLengthEl = document.querySelector('#water-courses-periodicity-length')
+  wcLengthEl.append(wcLength)
+
+  // --- bodies ---
+
+  const waterBodiesRows = rowsForType({ type: 'waterBodies' })
+  
+  const wbCountLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
+  const wbCount = Plot.plot({
+    x: { label: 'Count' },
+    y: {
+      label: 'Periodicity',
+      domain: waterBodiesRows.map(wbCountLabel),
+    },
+    marginLeft: 20,
+    marks: [
+      Plot.barX(waterBodiesRows, {
+        x: "count",
+        y: (row) => wbCountLabel(row),
+        fill: hydrographyBlue
+      }),
+      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+    ],
+  })
+  const wbCountEl = document.querySelector('#water-bodies-periodicity-length')
+  wbCountEl.append(wbCount)
+
+  const wbLengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
+  const wbLength = Plot.plot({
+    x: { label: 'Length (m)' },
+    y: {
+      label: 'Periodicity',
+      domain: waterBodiesRows.map(wbLengthLabel),
+    },
+    marginLeft: 20,
+    marks: [
+      Plot.barX(waterBodiesRows, {
+        x: "count",
+        y: (row) => wbLengthLabel(row),
+        fill: hydrographyBlue
+      }),
+      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+    ],
+  })
+  const wbLengthEl = document.querySelector('#water-bodies-periodicity-length')
+  wbLengthEl.append(wbLength)
+
+  // --- hydrography ---
+
+  const hydrographyRows = waterCouresRows.map((wcRow) => {
+    const wbRow = waterBodiesRows.find(wbRow => wbRow.periodicity === wcRow.periodicity)
+    if (!wbRow) return wcRow
+    wcRow.count += wbRow.count
+    wcRow.length += wbRow.length
+    return wcRow
+  })
+  console.log({hydrographyRows})
+  const hyCountLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
+  const hyCount = Plot.plot({
+    x: { label: 'Count' },
+    y: {
+      label: 'Periodicity',
+      domain: hydrographyRows.map(hyCountLabel),
+    },
+    marginLeft: 20,
+    marks: [
+      Plot.barX(hydrographyRows, {
+        x: "count",
+        y: (row) => hyCountLabel(row),
+        fill: hydrographyBlue
+      }),
+      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+    ],
+  })
+  const hyCountEl = document.querySelector('#hydrography-periodicity-count')
+  hyCountEl.append(hyCount)
+
+  const hyLengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
+  const hyLength = Plot.plot({
+    x: { label: 'Length (m)' },
+    y: {
+      label: 'Periodicity',
+      domain: hydrographyRows.map(hyLengthLabel),
+    },
+    marginLeft: 20,
+    marks: [
+      Plot.barX(hydrographyRows, {
+        x: "count",
+        y: (row) => hyLengthLabel(row),
+        fill: hydrographyBlue
+      }),
+      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+    ],
+  })
+  const hyLengthEl = document.querySelector('#hydrography-periodicity-length')
+  hyLengthEl.append(hyLength)
+
+</script>
 <p>Then run <a href="./redcedar-poi.js"><code>node redcedar-poi.js</code></a> in order
 to create a geojson point feature collection of the observation data,
 filtering out observations without valid [longitude, latitude]
@@ -455,6 +637,10 @@ attributes, and that reside outside of the WA DNR watershed boundaries.
 This file is saved as <a href="./redcedar-poi.geojson">redcedar-poi.geojson</a>. WA DNR data is
 downloaded with the projection EPSG:3857, so the redcedar POI data is
 reprojected into the same coordinate system.</p>
+<p><strong>Counts for each Tree Symptom value</strong></p>
+<div id="tree-symptom-count">
+
+</div>
 </div>
 <div id="distance-to-waterways" class="section level1">
 <h1>Distance to Waterways</h1>
@@ -524,12 +710,8 @@ chart that shows the total number of observations for each Tree Canopy
 Symptom value. Following is a series of boxplots that shows the
 distribution of distance to hydrography feature values across each of
 the Tree Symptom values for each analysis.</p>
-<p><strong>Counts for each Tree Symptom value</strong></p>
-<div id="bar">
-
-</div>
 <p><strong>Distribution of distance to hydrography</strong></p>
-<div id="boxes">
+<div id="analysis-spec-plots">
 
 </div>
 <p>A supplementary map can be found in this same directory
@@ -675,7 +857,7 @@ border: 2px solid black;
       return 0
     })
 
-  const bar = Plot.plot({
+  const treeSymptomCount = Plot.plot({
     x: { label: 'Observations' },
     y: {
       label: 'Tree Canopy Symptom',
@@ -691,23 +873,23 @@ border: 2px solid black;
       Plot.axisY({textAnchor: "start", fill: "black", dx: 14, tickSize: 0}),
     ],
   })
-  const barEl = document.querySelector("#bar")
-  barEl.append(bar)
+  const treeSymptomCountEl = document.querySelector("#tree-symptom-count")
+  treeSymptomCountEl.append(treeSymptomCount)
 
-  const boxes = document.querySelector('#boxes')
+  const analysisSpecPlotsEl = document.querySelector('#analysis-spec-plots')
   for (const spec of common.analysisSpecs) {
     const heading = document.createElement('p')
     const description = document.createElement('p')
     heading.innerHTML = `<strong>subanalysis: ${spec.name}</strong>`
     description.innerText = `Includes hydrography features with the following period (\`WB_PERIOD_LABEL_NM\` or \`WC_PERIOD_LABEL_NM\`) values: ${spec.include.join(', ')}.`
-    boxes.append(heading)
-    boxes.append(description)
+    analysisSpecPlotsEl.append(heading)
+    analysisSpecPlotsEl.append(description)
     const x = `${spec.name}-dist`
     rows.forEach((row) => {
       row[x] = parseFloat(row[x])
     })
     const box = boxPlot({ x, rows, symptoms, observations })
-    boxes.append(box)
+    analysisSpecPlotsEl.append(box)
   }
 </script>
 </div>
