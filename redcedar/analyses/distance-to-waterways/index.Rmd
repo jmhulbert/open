@@ -77,94 +77,65 @@ Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order 
 
   const hydrographyBlue = '#00ABFF'
   const commaSeperated = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+  const countLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
+  const lengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
 
   // --- courses ---
 
   const waterCouresRows = rowsForType({ type: 'waterCourses' })
-  
-  const wcCountLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
-  const wcCount = Plot.plot({
-    x: { label: 'Count' },
-    y: {
-      label: 'Periodicity',
-      domain: waterCouresRows.map(wcCountLabel),
-    },
-    marginLeft: 20,
-    marks: [
-      Plot.barX(waterCouresRows, {
-        x: "count",
-        y: (row) => wcCountLabel(row),
-        fill: hydrographyBlue
-      }),
-      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
-    ],
-  })
-  const wcCountEl = document.querySelector('#water-courses-periodicity-length')
-  wcCountEl.append(wcCount)
 
-  const wcLengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
-  const wcLength = Plot.plot({
-    x: { label: 'Length (m)' },
-    y: {
-      label: 'Periodicity',
-      domain: waterCouresRows.map(wcLengthLabel),
-    },
-    marginLeft: 20,
-    marks: [
-      Plot.barX(waterCouresRows, {
-        x: "count",
-        y: (row) => wcLengthLabel(row),
-        fill: hydrographyBlue
-      }),
-      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
-    ],
-  })
+  const countPlot = ({ rows }) => {
+    return Plot.plot({
+      x: { label: 'Count' },
+      y: {
+        label: 'Periodicity',
+        domain: rows.map(countLabel),
+      },
+      marginLeft: 20,
+      marks: [
+        Plot.barX(rows, {
+          x: "count",
+          y: (row) => countLabel(row),
+          fill: hydrographyBlue
+        }),
+        Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+      ],
+    })
+  }
+
+  const lengthPlot = ({ rows }) => {
+    return Plot.plot({
+      x: { label: 'Length (m)' },
+      y: {
+        label: 'Periodicity',
+        domain: rows.map(lengthLabel),
+      },
+      marginLeft: 20,
+      marks: [
+        Plot.barX(rows, {
+          x: "count",
+          y: (row) => lengthLabel(row),
+          fill: hydrographyBlue
+        }),
+        Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+      ],
+    })
+  }
+
+  const wcCountEl = document.querySelector('#water-courses-periodicity-length')
+  wcCountEl.append(countPlot({ rows: waterCouresRows }))
+
   const wcLengthEl = document.querySelector('#water-courses-periodicity-length')
-  wcLengthEl.append(wcLength)
+  wcLengthEl.append(lengthPlot({ rows: waterCouresRows }))
 
   // --- bodies ---
 
   const waterBodiesRows = rowsForType({ type: 'waterBodies' })
-  
-  const wbCountLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
-  const wbCount = Plot.plot({
-    x: { label: 'Count' },
-    y: {
-      label: 'Periodicity',
-      domain: waterBodiesRows.map(wbCountLabel),
-    },
-    marginLeft: 20,
-    marks: [
-      Plot.barX(waterBodiesRows, {
-        x: "count",
-        y: (row) => wbCountLabel(row),
-        fill: hydrographyBlue
-      }),
-      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
-    ],
-  })
   const wbCountEl = document.querySelector('#water-bodies-periodicity-length')
-  wbCountEl.append(wbCount)
+  wbCountEl.append(countPlot({ rows: waterBodiesRows }))
 
-  const wbLengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
-  const wbLength = Plot.plot({
-    x: { label: 'Length (m)' },
-    y: {
-      label: 'Periodicity',
-      domain: waterBodiesRows.map(wbLengthLabel),
-    },
-    marginLeft: 20,
-    marks: [
-      Plot.barX(waterBodiesRows, {
-        x: "count",
-        y: (row) => wbLengthLabel(row),
-        fill: hydrographyBlue
-      }),
-      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
-    ],
-  })
   const wbLengthEl = document.querySelector('#water-bodies-periodicity-length')
-  wbLengthEl.append(wbLength)
+  wbLengthEl.append(lengthPlot({ rows: waterBodiesRows }))
 
   // --- hydrography ---
 
@@ -175,46 +146,11 @@ Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order 
     wcRow.length += wbRow.length
     return wcRow
   })
-  console.log({hydrographyRows})
-  const hyCountLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
-  const hyCount = Plot.plot({
-    x: { label: 'Count' },
-    y: {
-      label: 'Periodicity',
-      domain: hydrographyRows.map(hyCountLabel),
-    },
-    marginLeft: 20,
-    marks: [
-      Plot.barX(hydrographyRows, {
-        x: "count",
-        y: (row) => hyCountLabel(row),
-        fill: hydrographyBlue
-      }),
-      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
-    ],
-  })
   const hyCountEl = document.querySelector('#hydrography-periodicity-count')
-  hyCountEl.append(hyCount)
+  hyCountEl.append(countPlot({ rows:  hydrographyRows }))
 
-  const hyLengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
-  const hyLength = Plot.plot({
-    x: { label: 'Length (m)' },
-    y: {
-      label: 'Periodicity',
-      domain: hydrographyRows.map(hyLengthLabel),
-    },
-    marginLeft: 20,
-    marks: [
-      Plot.barX(hydrographyRows, {
-        x: "count",
-        y: (row) => hyLengthLabel(row),
-        fill: hydrographyBlue
-      }),
-      Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
-    ],
-  })
   const hyLengthEl = document.querySelector('#hydrography-periodicity-length')
-  hyLengthEl.append(hyLength)
+  hyLengthEl.append(lengthPlot({ rows:  hydrographyRows }))
 
 </script>
 
