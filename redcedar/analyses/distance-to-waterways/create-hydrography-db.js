@@ -107,5 +107,4 @@ for (const shpSpec of shpSpecs) {
     : onLine
   await reader.read({ onResult: onResult({ ...shpSpec }) })
 }
-await db.createIndexLine()
-await db.createIndexPolygon()
+await db.createIndicies()

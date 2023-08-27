@@ -72,24 +72,28 @@ const debug = Debug('nearest')
 const knearest = 10
 const {analysisParams, idSpec} = nearestSpec
 
-async function Analysis ({ db, ids, projSpec, knearest=1 }) {
+async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
   const nearestOptions = { units: 'kilometers' }
   const kilometersToMeters = (km) => {
     return km * 1000
   }
 
-  const lineIndex = await db.getLineIndex()
-  const polygonIndex = await db.getPolygonIndex()
-
+  let analysisName
+  let lineIndex
+  let polygonIndex
   let filterFeature = () => true
-  const setParams = (params) => {
+
+  const setParams = await (params) => {
     filterFeature = params.filterFeature
+    // TODO set the lineIndex and polygonIndex
+    analysisName = params.name
+    { lineIndex, polygonIndex } = await db.getSpatialIndicies({ analysisName })
   }
 
-  async function findIds ({ index, x, y, get, cknearest, offset=0, ids=[] }) {
+  async function findIds ({ index, x, y, featureType, cknearest, offset=0, ids=[] }) {
     const _ids = index.neighbors(x, y, cknearest).slice(offset)
     for (const id of _ids) {
-      const { feature } = await get(id)
+      const { feature } = await db.getAnalysisFeature({ analysisName, featureType, spatialIndex: id })
       if (!filterFeature(feature)) continue
       ids.push(id)
       if (ids.length >= knearest) break
@@ -117,12 +121,12 @@ async function Analysis ({ db, ids, projSpec, knearest=1 }) {
       index: polygonIndex,
       x,
       y,
-      get: db.getPolygon,
+      featureType: 'polygon',
       cknearest: knearest,
       offset: 0,
     })
     for (const id of ids) {
-      const { feature } = await db.getPolygon(id)
+      const { feature } = await db.getAnalysisFeature({ analysisName, featureType: 'polygon', spatialIndex: id })
       if (pointInPolygon(poi, feature)) {
         isInPolygon = true
         polygon = feature
@@ -159,14 +163,14 @@ async function Analysis ({ db, ids, projSpec, knearest=1 }) {
       index: lineIndex,
       x,
       y,
-      get: db.getLine,
+      featureType: 'line',
       cknearest: knearest,
       offset: 0,
     })
     let npoint = { properties: { dist: Infinity } }
     let nfeat
     for (const id of ids) {
-      const { feature } = await db.getLine(id)
+      const { feature } = await db.getAnalysisFeature({ analysisName, featureType: 'line', spatialIndex: id })
       // nearestPointOnLine wants to be processed in projSpec.nearest
       const lineCoords = feature.geometry.type === 'LineString'
         ? lineString(
@@ -228,7 +232,7 @@ const analysis = await Analysis({
 for (const params of analysisParams) {
   debug('analysis:', params.analysisSpec.name)
 
-  analysis.setParams(params.analysisSpec)
+  await analysis.setParams(params.analysisSpec)
 
   await pipePromise(
     fs.createReadStream(redcedarPoiGeojsonPath),

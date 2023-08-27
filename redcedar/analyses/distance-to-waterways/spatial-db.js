@@ -16,10 +16,13 @@ import Flatbush from 'flatbush'
 import {Level} from 'level'
 import bytewise from 'bytewise'
 import bbox from '@turf/bbox'
-import {hydrographyDir} from './common.js'
+import {hydrographyDir, nearestSpec} from './common.js'
 import Debug from 'debug'
 
 const debug = Debug('spatial-db')
+
+const { analysisParams } = nearestSpec
+console.log(analysisParams)
 
 export const dbSpec = {
   path: `${hydrographyDir}-db`,
@@ -27,74 +30,96 @@ export const dbSpec = {
     keyEncoding: bytewise,
     valueEncoding: 'json',
   },
-  lineFeatureKey: (id) => ['lf', 'feature', id],
-  polygonFeatureKey: (id) => ['pf', 'feature', id],
-  lineIndexKey: () => ['lf', 'index'],
-  polygonIndexKey: () => ['pf', 'index'],
-  featureIndexPosition: (key) => key[2],
+  featureKey: ({ featureType, id }) => ['feature', featureType, id],
+  spatialIndexKey: ({ analysisName, featureType }) => ['spatial-index', analysisName, type],
+  // spatial index features are inserted linearly, so we keep track of
+  // the actual featureKey id value at this location
+  featureSpatialIndexKey: ({ analysisName, featureType, spatialIndex }) => ['feature-spatial-index', analysisName, featureType, spatialIndex],
+  analysisParams,
 }
 
 export const SpatialDB = (dbSpec) => {
   const db = new Level(dbSpec.path, dbSpec.options)
 
-  let countLine = -1
-  let countPolygon = -1
+  const featureTypes = ['line', 'polygon']
 
-  let indexLine
-  let indexPolygon
+  // the overall count. individual counts will be mapped to this
+  // global count, referred to as the feture id in `lineFeatureKey`
+  // and `polygonFeatureKey`
+  const putCount = -1
+  const counts = {}
+  for (const { analysisSpec } of dbpSpec.analysisParams) {
+    counts[analysisSpec.name] = {}
+    for (const featureType of featureTypes) {
+      counts[analysisSpec.name][featureType] = -1
+    }
+  }
 
-  const put = ({ keyFn, count }) => async ({ feature }) => {
-    count += 1
-    return await db.put(keyFn(count), { feature })
+  const put = ({ featureType }) => async ({ feature }) => {
+    putCount += 1
+    for (const { analysisSpec } of dbpSpec.analysisParams) {
+      const { name, filterFeature } = analysisSpec
+      if (!filterFeature({ feature })) continue
+      counts[name][featureType] += 1
+      await db.put(dbSpec.featureSpatialIndexKey({
+        analysisName: name,
+        featureType,
+        spatialIndex: counts[name][featureType]
+      }), { id: putCount })
+    }
+    return await db.put(dbSpec.featureKey({ featureType, id: putCount}), { feature })
   }
 
   db.putLine = put({
-    keyFn: dbSpec.lineFeatureKey,
-    count: countLine,
+    featureType: 'line',
   })
   db.putPolygon = put({
-    keyFn: dbSpec.polygonFeatureKey,
-    count: countPolygon,
+    featureType: 'polygon',
   })
 
-  const get = ({ keyFn }) => async (id) => {
-    return await db.get(keyFn(id))
+  db.getAnalysisFeature = async ({ analysisName, featureType, spatialIndex }) => {
+    const { id } = await db.get(dbSpec.featureSpatialIndexKey({ analysisName, featureType, spatialIndex }))
+    return await db.get(dbSpec.featureKey({ featureType, id }))
   }
 
-  db.getLine = get({ keyFn: dbSpec.lineFeatureKey })
-  db.getPolygon = get({ keyFn: dbSpec.polygonFeatureKey })
-
-  const getIndex = ({ keyFn, index }) => async () => {
-    const bufJson = await db.get(keyFn())
+  const getSpatialIndex = async ({ analysisName, featureType }) => {
+    const bufJson = await db.get(dbSpec.spatialIndexKey({ analysisName, featureType }))
     const buf = Buffer.from(bufJson)
     const indexData = new Int8Array(buf)
-    index = Flatbush.from(indexData.buffer)
+    const index = Flatbush.from(indexData.buffer)
     return index
   }
 
-  db.getLineIndex = getIndex({
-    keyFn: dbSpec.lineIndexKey,
-    index: indexLine,
-  })
-  db.getPolygonIndex = getIndex({
-    keyFn: dbSpec.polygonIndexKey,
-    index: indexPolygon,
-  })
+  db.getSpatialIndicies = ({ analysisName }) => {
+    const lineIndex = await getSpatialIndex({ analysisName, featureType: 'line' })
+    const polygonIndex = await getSpatialIndex({ analysisName, featureType: 'polygon' })
+    return {
+      lineIndex,
+      polygonIndex,
+    }
+  }
 
-  const getIterator = ({ keyFn }) => () => {
+  const getFeatureIterator = ({ featureType }) => () => {
     return db.iterator({
-      gt: keyFn(null),
-      lt: keyFn(undefined),
+      gt: dbSpec.featureKey({ featureType, id: null }),
+      lt: dbSpec.featureKey({ featureType, id: undefined }),
     })
   }
 
-  db.getIteratorLine = getIterator({ keyFn: dbSpec.lineFeatureKey })
-  db.getIteratorPolygon = getIterator({ keyFn: dbSpec.polygonFeatureKey })
+  db.getIteratorLine = getFeatureIterator({ featureType: 'line' })
+  db.getIteratorPolygon = getFeatureIterator({ featureType: 'polygon' })
 
-  const getCount = ({ keyFn, count }) => async () => {
+  const getFeatureSpatialIndexIterator = ({ analysisName, featureType }) => {
+    return db.iterator({
+      gt: dbSpec.featureSpatialIndexKey({ analysisName, featureType, spatialIndex: null }),
+      lt: dbSpec.featureSpatialIndexKey({ analysisName, featureType, spatialIndex: undefined }),
+    })
+  }
+
+  const getCount = async ({ analysisName, featureType }) => {
     const keys = db.keys({
-      gt: keyFn(null),
-      lt: keyFn(undefined),
+      gt: dbSpec.featureSpatialIndexKey({ analysisName, featureType, spatialIndex: null }),
+      lt: dbSpec.featureSpatialIndexKey({ analysisName, featureType, spatialIndex: undefined }),
       reverse: true,
       limit: 1,
     })
@@ -104,48 +129,25 @@ export const SpatialDB = (dbSpec) => {
     return count
   }
 
-  db.getCountLine = getCount({
-    keyFn: dbSpec.lineFeatureKey,
-    count: countLine,
-  })
-  db.getCountPolygon = getCount({
-    keyFn: dbSpec.polygonFeatureKey,
-    count: countPolygon,
-  })
-
-  const createIndex = ({ count, getCount, getIterator, index, indexKeyFn }) => async () => {
-    if (count === -1) {
-      count = await getCount()
+  db.createIndicies = async () => {
+    for (const { analysisSpec } of dbpSpec.analysisParams) {
+      const analysisName = analysisSpec.name
+      for (const featureType of featureTypes) {
+        const count = await getCount({ analysisName, featureType })
+        const index = new Flatbush(count + 1)
+        const iterator = getFeatureSpatialIndexIterator({ analysisName, featureType })
+        for await (const [key , { id }] of iterator) {
+          const spatialIndex = key[3]
+          const { feature } = await db.get(dbSpec.featureKey({ featureType, id }))
+          const fbbox = bbox(feature)
+          const i = index.add(fbbox[0], fbbox[1], fbbox[2], fbbox[3])
+          equal(i === spatialIndex)
+        }
+        index.finish()
+        await db.put(dbSpec.spatialIndexKey({ analysisName, featureType }), Buffer.from(index.data).toJSON())
+      }
     }
-    // count is 0 indexed, so we plus 1 for the number of features
-    index = new Flatbush(count + 1)
-    for await (const [key, { feature }] of getIterator()) {
-      const fbbox = bbox(feature)
-      const i = index.add(fbbox[0], fbbox[1], fbbox[2], fbbox[3])
-      // we should be getting these out in the same order that we put them
-      // in, so we should be getting equal indicies from the spatial index
-      // and our direct access into the object
-      equal(dbSpec.featureIndexPosition(key), i)
-    }
-    index.finish()
-    await db.put(indexKeyFn(), Buffer.from(index.data).toJSON())
-    return index
   }
-
-  db.createIndexLine = createIndex({
-    count: countLine,
-    getCount: db.getCountLine,
-    getIterator: db.getIteratorLine,
-    index: indexLine,
-    indexKeyFn: dbSpec.lineIndexKey,
-  })
-  db.createIndexPolygon = createIndex({
-    count: countPolygon,
-    getCount: db.getCountPolygon,
-    getIterator: db.getIteratorPolygon,
-    index: indexPolygon,
-    indexKeyFn: dbSpec.polygonIndexKey,
-  })
 
   return db
 }
