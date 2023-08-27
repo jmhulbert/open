@@ -315,6 +315,18 @@ const analysisSpecs = [
     key: 'period-per',
     source: geojsonSource({ data: 'redcedar-poi-nearest-period-per-nconn-epsg-4326.geojson' }),
   },
+  {
+    key: 'period-unk',
+    source: geojsonSource({ data: 'redcedar-poi-nearest-period-unk-nconn-epsg-4326.geojson' }),
+  },
+  {
+    key: 'period-eph',
+    source: geojsonSource({ data: 'redcedar-poi-nearest-period-eph-nconn-epsg-4326.geojson' }),
+  },
+  {
+    key: 'period-int',
+    source: geojsonSource({ data: 'redcedar-poi-nearest-period-int-nconn-epsg-4326.geojson' }),
+  },
 ]
 
 const nconnSourceSpecs = analysisSpecs.map(spec => {

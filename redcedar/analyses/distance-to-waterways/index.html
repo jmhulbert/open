@@ -600,6 +600,18 @@ to do the analysis, using the specifications described in the <a href="./common.
     {
       &quot;name&quot;: &quot;period-per&quot;,
       &quot;include&quot;: [&quot;Perennial&quot;]
+    },
+    {
+      &quot;name&quot;: &quot;period-unk&quot;,
+      &quot;include&quot;: [&quot;Unknown&quot;]
+    },
+    {
+      &quot;name&quot;: &quot;period-eph&quot;,
+      &quot;include&quot;: [&quot;Ephemeral&quot;]
+    },
+    {
+      &quot;name&quot;: &quot;period-int&quot;,
+      &quot;include&quot;: [&quot;Intermittent&quot;]
     }
   ]
 }</code></pre>
@@ -619,17 +631,21 @@ useful to visually spot check results. Internally this known as the
 <code>nconn</code> (nearest connection) feature.</p></li>
 </ol>
 <pre class="bash"><code># npoint result files
-ls *.geojson | grep npoint</code></pre>
+ls *npoint.geojson</code></pre>
 <pre><code>redcedar-poi-nearest-period-all-npoint.geojson
+redcedar-poi-nearest-period-eph-npoint.geojson
 redcedar-poi-nearest-period-min-eph-npoint.geojson
 redcedar-poi-nearest-period-min-int-npoint.geojson
-redcedar-poi-nearest-period-per-npoint.geojson</code></pre>
+redcedar-poi-nearest-period-per-npoint.geojson
+redcedar-poi-nearest-period-unk-npoint.geojson</code></pre>
 <pre class="bash"><code># nconn result files
 ls *nconn.geojson</code></pre>
 <pre><code>redcedar-poi-nearest-period-all-nconn.geojson
+redcedar-poi-nearest-period-eph-nconn.geojson
 redcedar-poi-nearest-period-min-eph-nconn.geojson
 redcedar-poi-nearest-period-min-int-nconn.geojson
-redcedar-poi-nearest-period-per-nconn.geojson</code></pre>
+redcedar-poi-nearest-period-per-nconn.geojson
+redcedar-poi-nearest-period-unk-nconn.geojson</code></pre>
 <p>To display the results on a web map, we can convert the above
 <code>nconn</code> result files from EPSG:3857 to EPSG:4326 by running
 <a href="./nconn-to-epsg-4326.js"><code>node nconn-to-epsg-4326.js</code></a>.</p>

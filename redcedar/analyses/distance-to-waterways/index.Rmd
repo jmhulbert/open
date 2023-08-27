@@ -176,7 +176,7 @@ This will produce two geojson files for each subanalysis.
 
 ```{bash comment=''}
 # npoint result files
-ls *.geojson | grep npoint
+ls *npoint.geojson
 ```
 
 
