@@ -50,7 +50,7 @@ Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order 
 <div id="water-courses-periodicity-count"></div>
 <div id="water-courses-periodicity-length"></div>
 
-**Water Body Summary**
+**Water Bodies Summary**
 <div id="water-bodies-periodicity-count"></div>
 <div id="water-bodies-periodicity-length"></div>
 <div id="water-bodies-periodicity-area"></div>
