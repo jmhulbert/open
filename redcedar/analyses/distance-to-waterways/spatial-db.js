@@ -26,7 +26,8 @@ import Debug from 'debug'
 
 const debug = Debug('spatial-db')
 
-const { analysisParams } = nearestSpec
+const { analysisParams, idSpec } = nearestSpec
+const { nfeatIdParts } = idSpec
 
 export const dbSpec = {
   path: `${hydrographyDir}-db`,
@@ -36,7 +37,14 @@ export const dbSpec = {
   },
   // get an individual feature of `featureType` and `id`, which is
   // the global incrementing integer that the feature was inserted at.
-  featureKey: ({ featureType, id }) => ['feature', featureType, id],
+  featureKey: ({ featureType, putCount }) => ['feature', featureType, putCount],
+  // store the global featureKey putcount under the feature-id, which is the id
+  // that is used on the tabular tables to link back to the original features in the
+  // input datasets that are being stored
+  featureIdIndex: ({ feature }) => {
+    // ['feature-id', WB_ID || WC_ID : string,  id : int]
+    return ['feature-id'].concat(nfeatIdParts(feature))
+  },
   // the Flatbush index data array for each analysisName and featureType
   spatialIndexKey: ({ analysisName, featureType }) => ['spatial-index', analysisName, featureType],
   // spatial index features are inserted linearly for each analysisName and
@@ -76,10 +84,19 @@ export const SpatialDB = (dbSpec) => {
         featureType,
         spatialIndex: counts[name][featureType]
       })
-      await db.put(key, { id: putCount })
+      await db.put(key, { putCount })
     }
-    const key = dbSpec.featureKey({ featureType, id: putCount})
-    return await db.put(key, { feature })
+    {
+      const key = dbSpec.featureIdIndex({ feature })
+      debug(key)
+      await db.put(key, { putCount })
+    }
+    {
+      const key = dbSpec.featureKey({ featureType, putCount })
+      debug(key)
+      await db.put(key, { feature })
+    }
+    return
   }
 
   db.putLine = put({
@@ -90,8 +107,8 @@ export const SpatialDB = (dbSpec) => {
   })
 
   db.getAnalysisFeature = async ({ analysisName, featureType, spatialIndex }) => {
-    const { id } = await db.get(dbSpec.featureSpatialIndexKey({ analysisName, featureType, spatialIndex }))
-    return await db.get(dbSpec.featureKey({ featureType, id }))
+    const { putCount } = await db.get(dbSpec.featureSpatialIndexKey({ analysisName, featureType, spatialIndex }))
+    return await db.get(dbSpec.featureKey({ featureType, putCount }))
   }
 
   const getSpatialIndex = async ({ analysisName, featureType }) => {
@@ -113,8 +130,8 @@ export const SpatialDB = (dbSpec) => {
 
   const getFeatureIterator = ({ featureType }) => () => {
     return db.iterator({
-      gt: dbSpec.featureKey({ featureType, id: null }),
-      lt: dbSpec.featureKey({ featureType, id: undefined }),
+      gt: dbSpec.featureKey({ featureType, putCount: null }),
+      lt: dbSpec.featureKey({ featureType, putCount: undefined }),
     })
   }
 
@@ -149,9 +166,9 @@ export const SpatialDB = (dbSpec) => {
         debug('indicies:', analysisName, featureType, count)
         const index = new Flatbush(count + 1)
         const iterator = getFeatureSpatialIndexIterator({ analysisName, featureType })
-        for await (const [key , { id }] of iterator) {
+        for await (const [key , { putCount }] of iterator) {
           const spatialIndex = key[3]
-          const { feature } = await db.get(dbSpec.featureKey({ featureType, id }))
+          const { feature } = await db.get(dbSpec.featureKey({ featureType, putCount }))
           const fbbox = bbox(feature)
           const i = index.add(fbbox[0], fbbox[1], fbbox[2], fbbox[3])
           equal(i, spatialIndex)

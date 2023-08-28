@@ -48,6 +48,20 @@ export const nearestSpec = {
     nfeatId: (f) => {
       if (f.properties?.WB_ID) return `WB_ID:${f.properties.WB_ID}`
       if (f.properties?.WC_ID) return `WC_ID:${f.properties.WC_ID}`
+      throw new Error('Should not reach, feature should be either WB or WC.')
+    },
+    nfeatIdParts: (f) => {
+      if (f.properties?.WB_ID) {
+        return ['WB_ID', f.properties.WB_ID]
+      }
+      else if (f.properties?.WC_ID) {
+        return ['WC_ID', f.properties.WC_ID]
+      }
+      throw new Error('Should not reach, feature should be either WB or WC.')
+    },
+    nfeatIdPartsFromString: (stringId) => {
+      const [dataSet, itemId] = stringId.split(':')
+      return [dataSet, Number(itemId)]
     },
   }
 }
