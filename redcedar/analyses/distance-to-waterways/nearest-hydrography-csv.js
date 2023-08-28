@@ -11,12 +11,14 @@
  *
  * Each POI will carry the additional attributes:
  *
- * - `dist-{analysis-spec-name}`
- * - `nfeat-id-{analysis-spec-name}`
+ * - `{analysis-spec-name}-dist`
+ * - `{analysis-spec-name}-nfeat-id`
+ * - `{analysis-spec-name}-nfeat-period`
  *
  * For example, the distance to only Perennial hydrography features
- * will be saved as `dist-per`. And the nearest feature id will be
- * saved as `nfeat-id-per`.
+ * will be saved as `period-per-dist`, the nearest feature id will be
+ * saved as `period-per-nfeat-id`, and the period value of the nearest
+ * feature will we under `period-per-nfeat-period`.
  */
 
 import fs from 'node:fs'
@@ -24,6 +26,7 @@ import {parse} from 'geojson-stream'
 import {createObjectCsvWriter} from 'csv-writer'
 import {redcedarPoiGeojsonPath, nearestSpec, pipePromise} from './common.js'
 import {ResultsDB, dbSpec} from './results-db.js'
+import * as sdb from './spatial-db.js'
 import Debug from 'debug'
 import {through} from 'mississippi' 
 
@@ -32,6 +35,7 @@ const {baseFileName} = nearestSpec
 const csvFilePath = `${baseFileName}-by-period.csv`
 
 const db = ResultsDB(dbSpec)
+const spatialDB = sdb.SpatialDB(sdb.dbSpec)
 
 const debug = Debug('nearest-csv')
 
@@ -60,7 +64,7 @@ await pipePromise(
       const analysisName = key[2]
       const {csvFields} = nearestSpec.analysisParams.find(p => p.analysisSpec.name === analysisName)
       for (const csvField of csvFields) {
-        row[csvField.key] = csvField.valueFn({ nconn })
+        row[csvField.key] = await csvField.valueFn({ spatialDB, nconn })
       }
     }
     await db.putCsv({ row })

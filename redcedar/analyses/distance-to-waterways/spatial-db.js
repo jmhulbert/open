@@ -27,7 +27,7 @@ import Debug from 'debug'
 const debug = Debug('spatial-db')
 
 const { analysisParams, idSpec } = nearestSpec
-const { nfeatIdParts } = idSpec
+const { nfeatIdParts, nfeatIdPartsFromString } = idSpec
 
 export const dbSpec = {
   path: `${hydrographyDir}-db`,
@@ -41,10 +41,11 @@ export const dbSpec = {
   // store the global featureKey putcount under the feature-id, which is the id
   // that is used on the tabular tables to link back to the original features in the
   // input datasets that are being stored
-  featureIdIndex: ({ feature }) => {
+  nfeatIdIndex: ({ feature }) => {
     // ['feature-id', WB_ID || WC_ID : string,  id : int]
     return ['feature-id'].concat(nfeatIdParts(feature))
   },
+  nfeatIdPartsIndex: (parts) => ['feature-id'].concat(parts),
   // the Flatbush index data array for each analysisName and featureType
   spatialIndexKey: ({ analysisName, featureType }) => ['spatial-index', analysisName, featureType],
   // spatial index features are inserted linearly for each analysisName and
@@ -87,13 +88,11 @@ export const SpatialDB = (dbSpec) => {
       await db.put(key, { putCount })
     }
     {
-      const key = dbSpec.featureIdIndex({ feature })
-      debug(key)
+      const key = dbSpec.nfeatIdIndex({ feature })
       await db.put(key, { putCount })
     }
     {
       const key = dbSpec.featureKey({ featureType, putCount })
-      debug(key)
       await db.put(key, { feature })
     }
     return
@@ -108,6 +107,24 @@ export const SpatialDB = (dbSpec) => {
 
   db.getAnalysisFeature = async ({ analysisName, featureType, spatialIndex }) => {
     const { putCount } = await db.get(dbSpec.featureSpatialIndexKey({ analysisName, featureType, spatialIndex }))
+    return await db.get(dbSpec.featureKey({ featureType, putCount }))
+  }
+
+  db.getNFeatIdFeature = async ({ nfeatId }) => {
+    const [dataSet, itemId] = idSpec.nfeatIdPartsFromString(nfeatId)
+    const { putCount } = await db.get(
+      dbSpec.nfeatIdPartsIndex([ dataSet, itemId])
+    )
+    let featureType
+    switch (dataSet) {
+      case 'WB':
+        featureType = 'polygon'
+        break;
+      case 'WC':
+      default:
+        featureType = 'line'
+        break
+    }
     return await db.get(dbSpec.featureKey({ featureType, putCount }))
   }
 

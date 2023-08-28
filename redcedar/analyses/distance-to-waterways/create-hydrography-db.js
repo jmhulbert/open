@@ -99,12 +99,12 @@ const shpReader = (shpSpec) => {
   return { open, read }
 }
 
-// for (const shpSpec of shpSpecs) {
-//   const reader = shpReader(shpSpec)
-//   await reader.open()
-//   const onResult = shpSpec.type === SHP_TYPE.POLYGON
-//     ? onPolygon
-//     : onLine
-//   await reader.read({ onResult: onResult({ ...shpSpec }) })
-// }
+for (const shpSpec of shpSpecs) {
+  const reader = shpReader(shpSpec)
+  await reader.open()
+  const onResult = shpSpec.type === SHP_TYPE.POLYGON
+    ? onPolygon
+    : onLine
+  await reader.read({ onResult: onResult({ ...shpSpec }) })
+}
 await db.createIndicies()

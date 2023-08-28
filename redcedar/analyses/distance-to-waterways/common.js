@@ -59,8 +59,8 @@ export const nearestSpec = {
       }
       throw new Error('Should not reach, feature should be either WB or WC.')
     },
-    nfeatIdPartsFromString: (stringId) => {
-      const [dataSet, itemId] = stringId.split(':')
+    nfeatIdPartsFromString: (nfeatId) => {
+      const [dataSet, itemId] = nfeatId.split(':')
       return [dataSet, Number(itemId)]
     },
   }
@@ -81,13 +81,18 @@ const stringifyArgs = [
   ']}'
 ]
 
+const periodForFeature = ({ feature }) => {
+  const period = feature.properties?.WC_PERIO_1 || feature.properties?.WB_PERIO_1
+  return period
+}
+
 nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {
   const baseResultFileName = `${nearestSpec.baseFileName}-${spec.name}`
   return {
     analysisSpec: {
       ...spec,
       filterFeature: (feature) => {
-        const period = feature.properties?.WC_PERIO_1 || feature.properties?.WB_PERIO_1
+        const period = periodForFeature({ feature })
         return spec.include.has(period)
       },
     },
@@ -108,11 +113,20 @@ nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {
     csvFields: [
       {
         key: `${spec.name}-dist`,
-        valueFn: ({ nconn }) => nconn.properties.dist
+        valueFn: async ({ nconn }) => nconn.properties.dist
       },
       {
         key: `${spec.name}-nfeat-id`,
-        valueFn: ({ nconn }) => nconn.properties['nfeat-id']
+        valueFn: async ({ nconn }) => nconn.properties['nfeat-id']
+      },
+      {
+        key: `${spec.name}-nfeat-period`,
+        valueFn: async ({ spatialDB, nconn }) => {
+          const nfeatId = nconn.properties['nfeat-id']
+          const { feature } = await spatialDB.getNFeatIdFeature({ nfeatId })
+          const period = periodForFeature({ feature })
+          return period
+        },
       },
     ],
   }

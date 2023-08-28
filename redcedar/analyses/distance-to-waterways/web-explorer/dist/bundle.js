@@ -16119,23 +16119,29 @@ class TabularComponent extends Component {
     this.local.selected = null
     this.local.activePositions = [0, this.local.pageCount - 1]
 
+    const analysisKeys = [
+      'period-all',
+      'period-min-eph',
+      'period-min-int',
+      'period-unk',
+      'period-int',
+      'period-eph',
+      'period-per',
+    ].map((analysisName) => {
+        return [
+          `${analysisName}-dist`,
+          `${analysisName}-nfeat-id`,
+          `${analysisName}-nfeat-period`,
+        ]
+      })
+      .reduce((acc, curr) => {
+        return acc.concat(curr)
+      }, [])
+
     const showKeys = new Set([
       'id',
       'reclassified.tree.canopy.symptoms',
-      'period-all-dist',
-      'period-all-nfeat-id',
-      'period-min-eph-dist',
-      'period-min-eph-nfeat-id',
-      'period-min-int-dist',
-      'period-min-int-nfeat-id',
-      'period-unk-dist',
-      'period-unk-nfeat-id',
-      'period-int-dist',
-      'period-int-nfeat-id',
-      'period-eph-dist',
-      'period-eph-nfeat-id',
-      'period-per-dist',
-      'period-per-nfeat-id',
+      ...analysisKeys,
     ])
 
     this.filterKeys = ({ key }) => {
