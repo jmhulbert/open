@@ -1,6 +1,6 @@
 ---
 title: "Distance to Waterways - WA DNR hydrography"
-author: 'Contributors: Rubén Rodríguez, Joey Hulbert'
+author: 'Contributors: [Rubén Rodríguez](http://rubenrodriguez.me), Joey Hulbert'
 output: html_document
 ---
 
@@ -20,9 +20,11 @@ library(knitr)
 
 # Approach
 
-This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA DNR watersheds](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about) and calculate the distance to the [stream centerlines from WA DNR](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about).
+This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA DNR watersheds](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about) and calculate the distance to the WA DNR hydrography using both [water courses](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about) ([metadata](https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WCHYDRO.pdf)) and [water bodies](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-water-bodies-forest-practices-regulation/about) ([metadata](https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WBHYDRO.pdf)).
 
-The result will be a point geo file that represents where on the stream is the closest point, carrying the metadata as to which redcedar observation is responsible for the point, and which stream id the point sits on.
+Water courses and water bodies data carry periodicity metadata stored under the  WC_PERIOD_LABEL_NM & WB_PERIOD_LABEL_NM attributes. Values include `Unknown`, `Ephemeral`, `Intermittent`, `Perennial`. The distance to hydrography features analysis is carried out for subsequently more strict criteria, starting with including hydrography features with any periodicity value, all the way down to seeking distance to only `Perennial` hydrography features. The water bodies periodicity metadata also has a `Dry land` value, which is filtered out of the analysis.
+
+The result will be series of geo files that represents where on hydrography features is the closest point, carrying the metadata as to which redcedar observation is responsible for the point, and which hydrography feature the point sits on. This is all stitched together in a final CSV, [`redcedar-poi-nearest-by-period.csv`](./redcedar-poi-nearest-by-period.csv).
 
 # Data Wrangling
 
@@ -36,82 +38,287 @@ From this directory, run `nvm use` to ensure the node 18.31.0 is active in your 
 
 Run `npm install` to get the dependencies.
 
-Given the large file size of the streams shapefile it is omitted from this repository, but can be downloaded by running `node fetch-streams-shapefile.js`. This is saved to a `wa-dnr-streams` directory.
+Given the large file size of the hydrography shapefiles they are omitted from this repository, but can be downloaded by running [`node fetch-hydrography.js`](./fetch-hydrography.js). This is saved to a `hydrography` directory.
 
-Then run `node streams-spatial-index.js` in order to create the spatial index of the streams shapefile, and give an interface for being able to query for individual features based on a point's nearest neighbors. This is saved to a `wa-dnr-streams-db` directory. This can take some time. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed.
+```{bash comment=''}
+ls hydrography
+```
 
-Then run `node redcedar-poi.js` in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries.
+Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order to create the database of hydrography features including a spatial index. This will produce affordances for querying nearest neighbors, as well as the ability to access any one feature based on the nearest neighbor query. This database is saved to a `hydrography-db` directory. This can take some time as there are 1,314,690 water course features. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed. Water body polygon features are converted to line features so that they can be queried alongside water course line features.
+
+**Water Courses Summary**
+<div id="water-courses-periodicity-count"></div>
+<div id="water-courses-periodicity-length"></div>
+
+**Water Body Summary**
+<div id="water-bodies-periodicity-count"></div>
+<div id="water-bodies-periodicity-length"></div>
+<div id="water-bodies-periodicity-area"></div>
+
+**Hydrography (Water Courses + Water Bodies) Summary**
+<div id="hydrography-periodicity-count"></div>
+<div id="hydrography-periodicity-length"></div>
+
+<script type="module">
+  import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
+
+  const results = await (await fetch('summarized-hydrography.json')).json()
+
+  const rowsForType = ({ type }) => {
+    return Object.keys(results[type]).map((periodicity) => {
+      return {
+        periodicity,
+        count: results[type][periodicity].count,
+        length: results[type][periodicity].length,
+        area: results[type][periodicity]?.area,
+      }
+    })
+  }
+
+  const hydrographyBlue = '#00ABFF'
+  const commaSeperated = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+  const countLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
+  const lengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
+
+  // --- courses ---
+
+  const waterCouresRows = rowsForType({ type: 'waterCourses' })
+
+  const countPlot = ({ rows }) => {
+    return Plot.plot({
+      x: { label: 'Count' },
+      y: {
+        label: 'Periodicity',
+        domain: rows.map(countLabel),
+      },
+      marginLeft: 20,
+      marks: [
+        Plot.barX(rows, {
+          x: "count",
+          y: (row) => countLabel(row),
+          fill: hydrographyBlue
+        }),
+        Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+      ],
+    })
+  }
+
+  const lengthPlot = ({ rows }) => {
+    return Plot.plot({
+      x: { label: 'Length (m)' },
+      y: {
+        label: 'Periodicity',
+        domain: rows.map(lengthLabel),
+      },
+      marginLeft: 20,
+      marks: [
+        Plot.barX(rows, {
+          x: "count",
+          y: (row) => lengthLabel(row),
+          fill: hydrographyBlue
+        }),
+        Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+      ],
+    })
+  }
+
+  const wcCountEl = document.querySelector('#water-courses-periodicity-length')
+  wcCountEl.append(countPlot({ rows: waterCouresRows }))
+
+  const wcLengthEl = document.querySelector('#water-courses-periodicity-length')
+  wcLengthEl.append(lengthPlot({ rows: waterCouresRows }))
+
+  // --- bodies ---
+
+  const waterBodiesRows = rowsForType({ type: 'waterBodies' })
+  const wbCountEl = document.querySelector('#water-bodies-periodicity-length')
+  wbCountEl.append(countPlot({ rows: waterBodiesRows }))
+
+  const wbLengthEl = document.querySelector('#water-bodies-periodicity-length')
+  wbLengthEl.append(lengthPlot({ rows: waterBodiesRows }))
+
+  // --- hydrography ---
+
+  const hydrographyRows = waterCouresRows.map((wcRow) => {
+    const wbRow = waterBodiesRows.find(wbRow => wbRow.periodicity === wcRow.periodicity)
+    if (!wbRow) return wcRow
+    wcRow.count += wbRow.count
+    wcRow.length += wbRow.length
+    return wcRow
+  })
+  const hyCountEl = document.querySelector('#hydrography-periodicity-count')
+  hyCountEl.append(countPlot({ rows:  hydrographyRows }))
+
+  const hyLengthEl = document.querySelector('#hydrography-periodicity-length')
+  hyLengthEl.append(lengthPlot({ rows:  hydrographyRows }))
+
+</script>
+
+Then run [`node redcedar-poi.js`](./redcedar-poi.js) in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries. This file is saved as [redcedar-poi.geojson](./redcedar-poi.geojson). WA DNR data is downloaded with the projection EPSG:3857, so the redcedar POI data is reprojected into the same coordinate system.
+
+**Counts for each Tree Symptom value**
+
+<div id="tree-symptom-count"></div>
 
 # Distance to Waterways
 
-Then run `node distance-to-stream.js` to do the final analysis. This will produce two geojson files.
+Then run [`node nearest-hydrography.js`](./nearest-hydrography.js) to do the analysis, using the specifications described in the [common.json](./common.json) file.
 
-1. A point feature collection of the points on the stream that represent the closest point to a stream. `redcedar-poi-nearest-k10.geojson`. The distance between observation and stream is stored in meters in the field `npoint-dist`. The observation attributes are prefixed with `opoint`. The closest stream attributes are prefixed with `nline`.
-2. A line feature collection that shows the connections between observations and the closest point on a stream. This is useful to visually spot check results.
+```{r comment=''}
+cat(readLines('common.json'), sep = '\n')
+```
+
+This will produce two geojson files for each subanalysis.
+
+1. A point feature collection of the points on hydrography features that represent the closest point to them. Internally this is known as the `npoint` (nearest point) feature. The distance between observation and hydrography feature is stored in meters in the field `npoint-dist`. The observation attributes are prefixed with `opoint`. The closest hydrography feature attributes are prefixed with `nfeat`. If the observation sits within a water body, it will have an `npoint-dist` of 0.
+
+2. A line feature collection that shows the connections between observations and the closest point on a hydrography feature. This is useful to visually spot check results. Internally this known as the `nconn` (nearest connection) feature.
+
+```{bash comment=''}
+# npoint result files
+ls *npoint.geojson
+```
 
 
-The following charts summarize the data produced. First is a bar chart that shows the total number of observations for each Tree Canopy Symptom value. Following is a boxplot that shows the distribution of distance values across each of the Tree Symptom values.
+```{bash comment=''}
+# nconn result files
+ls *nconn.geojson
+```
 
-<div id="bar"></div>
-<div id="box"></div>
+To display the results on a web map, we can convert the above `nconn` result files from EPSG:3857 to EPSG:4326 by running [`node nconn-to-epsg-4326.js`](./nconn-to-epsg-4326.js).
+
+```{bash comment=''}
+# nconn result files for web map display
+ls *nconn-epsg-4326.geojson
+```
+
+### Results
+
+The following charts summarize the data produced. First is a bar chart that shows the total number of observations for each Tree Canopy Symptom value. Following is a series of boxplots that shows the distribution of distance to hydrography feature values across each of the Tree Symptom values for each analysis.
+
+**Distribution of distance to hydrography**
+
+<div id="analysis-spec-plots"></div>
 
 A supplementary map can be found in this same directory (`map.qgz`). It carries all data used for this analysis.
 
+[`redcedar-poi-nearest-by-period.csv`](./redcedar-poi-nearest-by-period.csv) is also available in this directory. This is a merger of the all the `npoint` and `nconn` geojson files created for each subanalysis, but merged into a single file for reporting. The distance to hydrography features is stored in `{analysis-spec-name}-dist`. This was produced by running [`node nearest-hydrography-csv.js`](./nearest-hydrography-csv.js).
+
+Below is a split pane interface to look at the tabular results of the [`redcedar-poi-nearest-by-period.csv`](./redcedar-poi-nearest-by-period.csv) alongside a map of the redcedar observations and their nearest connection (`nconn`) to hydrography features. Clicking a feature on the map will highlight the associated tabular row, and vice versa.
+
+<style>
+iframe {
+  width: 100%;
+  height: 100vh;
+  border: 2px solid black;
+}
+</style>
+```{r results='asis'}
+knitr::include_url("./web-explorer/dist/index.html")
+```
+
+
 <script type="module">
-  // These charts were iterated on in this Observable
   // [notebook](https://observablehq.com/d/d834eb92e2f1a5a6).
   import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
-  main()
-  async function main () {
-    // source data
-    const response = await fetch('redcedar-poi-nearest-k10.geojson')
-    const geojson = await response.json()
+  import Papa from "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/+esm";
 
-    // data as array to visualize
-    const symptoms = [
-      {
-        symptom: 'Healthy',
-        color: 'rgb(172, 252, 172)',
-      },
-      {
-        symptom: 'Thinning Canopy',
-        color: 'rgb(251, 252, 172)',
-      },
-      {
-        symptom: 'Dead Top',
-        color: 'rgb(172, 176, 252)',
-      },
-      {
-        symptom: 'Tree is Dead',
-        color: 'rgb(252, 172, 172)',
-      },
-      {
-        symptom: 'Other',
-        color: 'lightgrey',
-      },
-    ]
-    let rows = geojson.features.map(f => f.properties)
-    rows.sort((a, b) => {
-      if (a['npoint-dist'] < b['npoint-dist']) return -1
-      if (a['npoint-dist'] > b['npoint-dist']) return 1
-      return 0
-    })
-    // add a sorted indices
-    rows = rows.map((row, index) => {
-      row._distince_index = index
-      const symptomIndex = symptoms
-        .findIndex(s => s.symptom === row['opoint-reclassified.tree.canopy.symptoms'])
-      row._sympton_index = symptomIndex === -1 ? symptomIndex.length - 1 : symptomIndex
-      return row
-    })
+  const common = await (await fetch('common.json')).json()
 
-    const observations = rows.reduce((accumulator, current) => {
+  const symptomField = 'reclassified.tree.canopy.symptoms'
+
+  function parseCsv ({ url }) {
+    const dataToJson = ({ data }) => {
+      const rows = []
+      const header = data.shift()
+      // remove the last line, its empty
+      data.pop()
+      for (const datum of data) {
+        const row = {}
+        Object.keys(header).forEach((fieldName, index) => {
+          row[header[fieldName]] = datum[index]
+        })
+        rows.push(row)
+      }
+      return { rows }
+    }
+
+    return new Promise((resolve, reject) => {
+      Papa.parse(url, {
+        download: true,
+        complete: (results) => {
+          resolve(dataToJson(results))
+        },
+      })  
+    })
+  }
+
+  function boxPlot ({ x, rows, symptoms, observations }) {
+    return Plot.plot({
+      x: {
+        grid: true,
+        inset: 0,
+        label: 'Distance to hydrography (m)'
+      },
+      y: {
+        label: 'Tree Canopy Symptom',
+        domain: observations.map(o => o.symptom),
+      },
+      marginLeft: 20,
+      marks: [
+        Plot.boxX(rows, {
+          x,
+          y: symptomField,
+          fill: (d) => {
+            const symptom = symptoms.find(s => s.symptom === d[symptomField])
+            if (!symptom) return 'lightgrey'
+            return symptom.color
+          },
+        }),
+        Plot.axisY({textAnchor: "start", fill: "black", dx: 0, tickSize: 0, text: () => ''}),
+      ],
+    })
+  }
+
+  const symptoms = [
+    {
+      symptom: 'Healthy',
+      color: 'rgb(172, 252, 172)',
+    },
+    {
+      symptom: 'Thinning Canopy',
+      color: 'rgb(251, 252, 172)',
+    },
+    {
+      symptom: 'Dead Top',
+      color: 'rgb(172, 176, 252)',
+    },
+    {
+      symptom: 'Tree is Dead',
+      color: 'rgb(252, 172, 172)',
+    },
+    {
+      symptom: 'Other',
+      color: 'rgb(211,211,211)',
+    },
+  ]
+
+  let { rows } = await parseCsv({ url: 'redcedar-poi-nearest-by-period.csv' })
+  
+  rows = rows.map((row, index) => {
+    const symptomIndex = symptoms
+      .findIndex(s => s.symptom === row[symptomField])
+    row._sympton_index = symptomIndex === -1 ? symptomIndex.length - 1 : symptomIndex
+    return row
+  })
+
+  const observations = rows.reduce((accumulator, current) => {
       let accumulatorIndex = accumulator.findIndex((item) => {
-        return item.symptom === current['opoint-reclassified.tree.canopy.symptoms']
+        return item.symptom === current[symptomField]
       })
       if (accumulatorIndex === -1) {
         const accumulatorItem = {
-          symptom: current['opoint-reclassified.tree.canopy.symptoms'],
+          symptom: current[symptomField],
           symptomIndex: current._sympton_index,
           observations: 1,
         }
@@ -122,61 +329,47 @@ A supplementary map can be found in this same directory (`map.qgz`). It carries 
       }
       return accumulator
     }, [])
-      .sort((a, b) => {
-        if (a.symptomIndex < b.symptomIndex) {
-          console.log('less')
-          return -1
-        }
-        if (a.symptomIndex > b.symptomIndex) return 1
-        return 0
-      })
-
-    const bar = Plot.plot({
-      x: { label: 'Observations' },
-      y: {
-        label: 'Tree Canopy Symptom',
-        domain: observations.map(o => o.symptom),
-      },
-      marginLeft: 20,
-      marks: [
-        Plot.barX(observations, {
-          x: "observations",
-          y: "symptom",
-          fill: (d) => symptoms[d.symptomIndex].color,
-        }),
-        Plot.axisY({textAnchor: "start", fill: "black", dx: 14, tickSize: 0}),
-      ],
+    .sort((a, b) => {
+      if (a.symptomIndex < b.symptomIndex) {
+        return -1
+      }
+      if (a.symptomIndex > b.symptomIndex) return 1
+      return 0
     })
-    const barEl = document.querySelector("#bar")
-    barEl.append(bar)
 
-    const box = Plot.plot({
-      x: {
-        grid: true,
-        inset: 0,
-        label: 'Distance to stream (m)'
-      },
-      y: {
-        label: 'Tree Canopy Symptom',
-        domain: observations.map(o => o.symptom),
-      },
-      marginLeft: 20,
-      marks: [
-        Plot.boxX(rows, {
-          x: "npoint-dist",
-          y: "opoint-reclassified.tree.canopy.symptoms",
-          fill: (d) => {
-            const symptom = symptoms.find(s => s.symptom === d['opoint-reclassified.tree.canopy.symptoms'])
-            if (!symptom) return 'lightgrey'
-            return symptom.color
-          },
-        }),
-        Plot.axisY({textAnchor: "start", fill: "black", dx: 0, tickSize: 0, text: () => ''}),
-      ],
+  const treeSymptomCount = Plot.plot({
+    x: { label: 'Observations' },
+    y: {
+      label: 'Tree Canopy Symptom',
+      domain: observations.map(o => o.symptom),
+    },
+    marginLeft: 20,
+    marks: [
+      Plot.barX(observations, {
+        x: "observations",
+        y: "symptom",
+        fill: (d) => symptoms[d.symptomIndex].color,
+      }),
+      Plot.axisY({textAnchor: "start", fill: "black", dx: 14, tickSize: 0}),
+    ],
+  })
+  const treeSymptomCountEl = document.querySelector("#tree-symptom-count")
+  treeSymptomCountEl.append(treeSymptomCount)
+
+  const analysisSpecPlotsEl = document.querySelector('#analysis-spec-plots')
+  for (const spec of common.analysisSpecs) {
+    const heading = document.createElement('p')
+    const description = document.createElement('p')
+    heading.innerHTML = `<strong>subanalysis: ${spec.name}</strong>`
+    description.innerText = `Includes hydrography features with the following period (\`WB_PERIOD_LABEL_NM\` or \`WC_PERIOD_LABEL_NM\`) values: ${spec.include.join(', ')}.`
+    analysisSpecPlotsEl.append(heading)
+    analysisSpecPlotsEl.append(description)
+    const x = `${spec.name}-dist`
+    rows.forEach((row) => {
+      row[x] = parseFloat(row[x])
     })
-    const boxEl = document.querySelector("#box")
-    boxEl.append(box)
+    const box = boxPlot({ x, rows, symptoms, observations })
+    analysisSpecPlotsEl.append(box)
   }
 </script>
 
-![](~/ServerFiles/open/redcedar/images/DistanceWaterWhatcom.jpg)

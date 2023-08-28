@@ -1,0 +1,42 @@
+{
+  "waterCourses": {
+    "Unknown": {
+      "count": 1147805,
+      "length": 925539316.1755898
+    },
+    "Ephemeral": {
+      "count": 289,
+      "length": 343756.54691739834
+    },
+    "Intermittent": {
+      "count": 65484,
+      "length": 205782508.3092315
+    },
+    "Perennial": {
+      "count": 101615,
+      "length": 131491359.37650187
+    }
+  },
+  "waterBodies": {
+    "Unknown": {
+      "count": 1570,
+      "length": 5187184.63168695,
+      "area": 740143307.4426497
+    },
+    "Ephemeral": {
+      "count": 42,
+      "length": 134562.61054088833,
+      "area": 11762395.1881515
+    },
+    "Intermittent": {
+      "count": 20835,
+      "length": 39870713.275682405,
+      "area": 5025763335.9830065
+    },
+    "Perennial": {
+      "count": 40651,
+      "length": 172888459.0007291,
+      "area": 146907190513.28116
+    }
+  }
+}
