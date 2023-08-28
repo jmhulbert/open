@@ -13,10 +13,6 @@
       "include": ["Intermittent", "Perennial"]
     },
     {
-      "name": "period-per",
-      "include": ["Perennial"]
-    },
-    {
       "name": "period-unk",
       "include": ["Unknown"]
     },
@@ -27,6 +23,10 @@
     {
       "name": "period-int",
       "include": ["Intermittent"]
+    },
+    {
+      "name": "period-per",
+      "include": ["Perennial"]
     }
   ]
 }

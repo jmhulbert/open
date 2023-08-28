@@ -9,6 +9,11 @@
  * to enable incrementally adding features to the leveldb, and then
  * upon completion, iterate through features in the order they were inserted
  * in order to create the flatbush index, since flatbush.
+ *
+ * For each `common.nearestSpect.analysisParams[{  name, filterFeature }]`
+ * we create indicies of hydrography features so that we can efficiently query
+ * a spatial index that only holds features related to that analysis query
+ * as defined by its `filterFeature` funciton.
  */
 
 import {equal} from 'node:assert'
@@ -22,7 +27,6 @@ import Debug from 'debug'
 const debug = Debug('spatial-db')
 
 const { analysisParams } = nearestSpec
-console.log(analysisParams)
 
 export const dbSpec = {
   path: `${hydrographyDir}-db`,
@@ -30,11 +34,17 @@ export const dbSpec = {
     keyEncoding: bytewise,
     valueEncoding: 'json',
   },
+  // get an individual feature of `featureType` and `id`, which is
+  // the global incrementing integer that the feature was inserted at.
   featureKey: ({ featureType, id }) => ['feature', featureType, id],
-  spatialIndexKey: ({ analysisName, featureType }) => ['spatial-index', analysisName, type],
-  // spatial index features are inserted linearly, so we keep track of
-  // the actual featureKey id value at this location
+  // the Flatbush index data array for each analysisName and featureType
+  spatialIndexKey: ({ analysisName, featureType }) => ['spatial-index', analysisName, featureType],
+  // spatial index features are inserted linearly for each analysisName and
+  // featureType. the value at for this key will be a { id } which is the `featureKey`
+  // id value to be used with the `featureType` to get the underlying `{ feature }`.
   featureSpatialIndexKey: ({ analysisName, featureType, spatialIndex }) => ['feature-spatial-index', analysisName, featureType, spatialIndex],
+  // we use the analysisParams to get `filterFeature` and `name` (analysisName)
+  // values so that we can filter and create our indicies.
   analysisParams,
 }
 
@@ -46,9 +56,9 @@ export const SpatialDB = (dbSpec) => {
   // the overall count. individual counts will be mapped to this
   // global count, referred to as the feture id in `lineFeatureKey`
   // and `polygonFeatureKey`
-  const putCount = -1
+  let putCount = -1
   const counts = {}
-  for (const { analysisSpec } of dbpSpec.analysisParams) {
+  for (const { analysisSpec } of dbSpec.analysisParams) {
     counts[analysisSpec.name] = {}
     for (const featureType of featureTypes) {
       counts[analysisSpec.name][featureType] = -1
@@ -57,17 +67,19 @@ export const SpatialDB = (dbSpec) => {
 
   const put = ({ featureType }) => async ({ feature }) => {
     putCount += 1
-    for (const { analysisSpec } of dbpSpec.analysisParams) {
-      const { name, filterFeature } = analysisSpec
-      if (!filterFeature({ feature })) continue
+    for (const params of dbSpec.analysisParams) {
+      const { name, filterFeature } = params.analysisSpec
+      if (!filterFeature(feature)) continue
       counts[name][featureType] += 1
-      await db.put(dbSpec.featureSpatialIndexKey({
+      const key = dbSpec.featureSpatialIndexKey({
         analysisName: name,
         featureType,
         spatialIndex: counts[name][featureType]
-      }), { id: putCount })
+      })
+      await db.put(key, { id: putCount })
     }
-    return await db.put(dbSpec.featureKey({ featureType, id: putCount}), { feature })
+    const key = dbSpec.featureKey({ featureType, id: putCount})
+    return await db.put(key, { feature })
   }
 
   db.putLine = put({
@@ -90,7 +102,7 @@ export const SpatialDB = (dbSpec) => {
     return index
   }
 
-  db.getSpatialIndicies = ({ analysisName }) => {
+  db.getSpatialIndicies = async ({ analysisName }) => {
     const lineIndex = await getSpatialIndex({ analysisName, featureType: 'line' })
     const polygonIndex = await getSpatialIndex({ analysisName, featureType: 'polygon' })
     return {
@@ -124,16 +136,17 @@ export const SpatialDB = (dbSpec) => {
       limit: 1,
     })
     for await (const key of keys) {
-      count = key[2]
+      return key[3]
     }
-    return count
+    return -1
   }
 
   db.createIndicies = async () => {
-    for (const { analysisSpec } of dbpSpec.analysisParams) {
+    for (const { analysisSpec } of dbSpec.analysisParams) {
       const analysisName = analysisSpec.name
       for (const featureType of featureTypes) {
         const count = await getCount({ analysisName, featureType })
+        debug('indicies:', analysisName, featureType, count)
         const index = new Flatbush(count + 1)
         const iterator = getFeatureSpatialIndexIterator({ analysisName, featureType })
         for await (const [key , { id }] of iterator) {
@@ -141,7 +154,7 @@ export const SpatialDB = (dbSpec) => {
           const { feature } = await db.get(dbSpec.featureKey({ featureType, id }))
           const fbbox = bbox(feature)
           const i = index.add(fbbox[0], fbbox[1], fbbox[2], fbbox[3])
-          equal(i === spatialIndex)
+          equal(i, spatialIndex)
         }
         index.finish()
         await db.put(dbSpec.spatialIndexKey({ analysisName, featureType }), Buffer.from(index.data).toJSON())

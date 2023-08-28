@@ -5,7 +5,10 @@
  * `$ node create-hydrography-db.js`
  *
  * The output of this process will be a `summarized-hydrograph.json` file.
- * 
+ *
+ * This output will include feature counts for each periodicity value
+ * to give a summary of the data being used in the remainder of the 
+ * analysis.
  */
 
 import { SpatialDB, dbSpec } from './spatial-db.js'
@@ -75,7 +78,5 @@ for await (const [key, { feature }] of db.getIteratorPolygon()) {
   if (!periodicityValues.has(periodicityValue)) continue
   results.waterBodies[periodicityValue].area += area
 }
-
-console.log(results)
 
 await fs.writeFile('summarized-hydrography.json', JSON.stringify(results, null, 2))

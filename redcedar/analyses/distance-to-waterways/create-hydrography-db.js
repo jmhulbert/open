@@ -22,7 +22,7 @@
  * [flatbush](https://github.com/mourner/flatbush) which provides spatial
  * indexing functionality.
  *
- * The entire database is written to `hydrography-db`.
+ * The entire database is written to the `hydrography-db` directory.
  */
 
 import shapefile from '@rubenrodriguez/shapefile'
@@ -99,12 +99,12 @@ const shpReader = (shpSpec) => {
   return { open, read }
 }
 
-for (const shpSpec of shpSpecs) {
-  const reader = shpReader(shpSpec)
-  await reader.open()
-  const onResult = shpSpec.type === SHP_TYPE.POLYGON
-    ? onPolygon
-    : onLine
-  await reader.read({ onResult: onResult({ ...shpSpec }) })
-}
+// for (const shpSpec of shpSpecs) {
+//   const reader = shpReader(shpSpec)
+//   await reader.open()
+//   const onResult = shpSpec.type === SHP_TYPE.POLYGON
+//     ? onPolygon
+//     : onLine
+//   await reader.read({ onResult: onResult({ ...shpSpec }) })
+// }
 await db.createIndicies()

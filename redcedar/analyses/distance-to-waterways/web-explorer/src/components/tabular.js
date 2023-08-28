@@ -74,6 +74,12 @@ class TabularComponent extends Component {
       'period-min-eph-nfeat-id',
       'period-min-int-dist',
       'period-min-int-nfeat-id',
+      'period-unk-dist',
+      'period-unk-nfeat-id',
+      'period-int-dist',
+      'period-int-nfeat-id',
+      'period-eph-dist',
+      'period-eph-nfeat-id',
       'period-per-dist',
       'period-per-nfeat-id',
     ])

@@ -46,8 +46,14 @@
  * `redcedadr-poi-nearest-period-min-eph-nconn.geojson`
  * `redcedadr-poi-nearest-period-min-int-npoint.geojson`
  * `redcedadr-poi-nearest-period-min-int-nconn.geojson`
- * `redcedadr-poi-nearest-period-min-per-npoint.geojson`
- * `redcedadr-poi-nearest-period-min-per-nconn.geojson`
+ * `redcedadr-poi-nearest-period-per-npoint.geojson`
+ * `redcedadr-poi-nearest-period-per-nconn.geojson`
+ * `redcedadr-poi-nearest-period-unk-npoint.geojson`
+ * `redcedadr-poi-nearest-period-unk-nconn.geojson`
+ * `redcedadr-poi-nearest-period-eph-npoint.geojson`
+ * `redcedadr-poi-nearest-period-eph-nconn.geojson`
+ * `redcedadr-poi-nearest-period-int-npoint.geojson`
+ * `redcedadr-poi-nearest-period-int-nconn.geojson`
  */
 
 import path from 'path'
@@ -83,18 +89,24 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
   let polygonIndex
   let filterFeature = () => true
 
-  const setParams = await (params) => {
+  const setParams = async (params) => {
     filterFeature = params.filterFeature
-    // TODO set the lineIndex and polygonIndex
     analysisName = params.name
-    { lineIndex, polygonIndex } = await db.getSpatialIndicies({ analysisName })
+    const indicies = await db.getSpatialIndicies({ analysisName })
+    lineIndex = indicies.lineIndex
+    polygonIndex = indicies.polygonIndex
   }
 
   async function findIds ({ index, x, y, featureType, cknearest, offset=0, ids=[] }) {
     const _ids = index.neighbors(x, y, cknearest).slice(offset)
     for (const id of _ids) {
       const { feature } = await db.getAnalysisFeature({ analysisName, featureType, spatialIndex: id })
-      if (!filterFeature(feature)) continue
+      if (!filterFeature(feature)) {
+        // should not find any with the hydrography-db
+        // analysisName/featureType refactor
+        debug('found-filtered-feature:', analysisName, featureType, id)
+        continue
+      }
       ids.push(id)
       if (ids.length >= knearest) break
     }
