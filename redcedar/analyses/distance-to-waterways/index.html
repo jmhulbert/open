@@ -757,6 +757,42 @@ border: 2px solid black;
     })
   }
 
+  const hydrographyBlue = '#00ABFF'
+
+  function countPlot ({ yField, rows }) {
+    const x = {}
+    const y = new Set()
+    rows.forEach((row) => {
+      const value = row[yField]
+      y.add(value)
+      if (!(typeof x[value]?.count === 'number')) x[value] = { count: 0 }
+      x[value].count += 1
+    })
+    const plotRows = Object.keys(x).map((y) => {
+      const { count } = x[y]
+      return {
+        y: `${ y } - ${ count } trees`,
+        count,
+      }
+    })
+    return Plot.plot({
+      x: { label: 'Nearest Tree Count' },
+      y: {
+        label: 'Periodicity',
+        domain: plotRows.map(r => r.y),
+      },
+      marginLeft: 20,
+      marks: [
+        Plot.barX(plotRows, {
+          x: 'count',
+          y: 'y',
+          fill: hydrographyBlue
+        }),
+        Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+      ],
+    })
+  }
+
   const symptoms = [
     {
       symptom: 'Healthy',
@@ -814,17 +850,18 @@ border: 2px solid black;
       return 0
     })
 
+  const treeSymptomLabel = (row) => `${row.symptom} - ${row.observations} observations`
   const treeSymptomCount = Plot.plot({
     x: { label: 'Observations' },
     y: {
       label: 'Tree Canopy Symptom',
-      domain: observations.map(o => o.symptom),
+      domain: observations.map(treeSymptomLabel),
     },
     marginLeft: 20,
     marks: [
       Plot.barX(observations, {
         x: "observations",
-        y: "symptom",
+        y: (row) => treeSymptomLabel(row),
         fill: (d) => symptoms[d.symptomIndex].color,
       }),
       Plot.axisY({textAnchor: "start", fill: "black", dx: 14, tickSize: 0}),
@@ -835,18 +872,24 @@ border: 2px solid black;
 
   const analysisSpecPlotsEl = document.querySelector('#analysis-spec-plots')
   for (const spec of common.analysisSpecs) {
+    const sectionEl = document.createElement('section')
+    sectionEl.style = `margin: 20px 0;`
     const heading = document.createElement('p')
     const description = document.createElement('p')
     heading.innerHTML = `<strong>subanalysis: ${spec.name}</strong>`
     description.innerText = `Includes hydrography features with the following period (\`WB_PERIOD_LABEL_NM\` or \`WC_PERIOD_LABEL_NM\`) values: ${spec.include.join(', ')}.`
-    analysisSpecPlotsEl.append(heading)
-    analysisSpecPlotsEl.append(description)
+    sectionEl.append(heading)
+    sectionEl.append(description)
     const x = `${spec.name}-dist`
     rows.forEach((row) => {
       row[x] = parseFloat(row[x])
     })
     const box = boxPlot({ x, rows, symptoms, observations })
-    analysisSpecPlotsEl.append(box)
+    sectionEl.append(box)
+    const yField = `${spec.name}-nfeat-period`
+    const count = countPlot({ yField, rows })
+    sectionEl.append(count)
+    analysisSpecPlotsEl.append(sectionEl)
   }
 </script>
 </div>
