@@ -16266,34 +16266,30 @@ class TabularComponent extends Component {
     doNotScrollIntoView=false,
     loadMoreDirty=false,
   }) {
-    this.local.loadMoreDirty = loadMoreDirty
-    if (this.local.selected !== selected && this.newActivePositions({ activePositions })) {
-      this.local.selected = selected
-      this.local.doNotScrollIntoView = doNotScrollIntoView
+    let update = false
+    if (this.local.loadMoreDirty !== loadMoreDirty) {
+      this.local.loadMoreDirty = loadMoreDirty
+      update = true   
+    }
+    if (this.newActivePositions({ activePositions })) {
       this.local.activePositions = activePositions
-      this.local.data = data
-      return true
+      update = true
     }
     if (this.local.selected !== selected) {
       this.local.selected = selected
       this.local.doNotScrollIntoView = doNotScrollIntoView
-      return true
-    }
-    if (this.newActivePositions({ activePositions })) {
-      this.local.activePositions = activePositions
-      this.local.data = data
-      return true
+      update = true
     }
     if (Array.isArray(data) && this.local.data.length !== data.length) {
       this.local.data = data
-      return true
+      update = true
     }
     if (this.local.url !== url) {
       this.local.url = url
       laodData({ url })
-      return true
+      update = true
     }
-    return false
+    return update
   }
 
   async loadData ({ url }) {
