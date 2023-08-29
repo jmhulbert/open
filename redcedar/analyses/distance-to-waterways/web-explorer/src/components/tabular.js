@@ -219,6 +219,7 @@ class TabularComponent extends Component {
     }
     if (this.newActivePositions({ activePositions })) {
       this.local.activePositions = activePositions
+      this.local.data = data
       update = true
     }
     if (this.local.selected !== selected) {

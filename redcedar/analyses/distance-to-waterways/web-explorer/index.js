@@ -158,7 +158,9 @@ const store = (state, emitter) => {
 
   emitter.on('tabular:data:selected', ({ id, latitude, longitude }) => {
     state.components.tabular.selected = id
-    state.components.tabular.doNotScrollIntoView = true
+    state.components.tabular.doNotScrollIntoView = state.components.splitPane.left.open === true
+      ? true
+      : false
     state.components.tabular.loadMoreDirty = false
     if (id && latitude && longitude) {
       state.map?.flyTo({ center: [longitude, latitude], zoom: 14 });
