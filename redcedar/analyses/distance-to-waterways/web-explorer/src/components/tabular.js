@@ -127,30 +127,29 @@ class TabularComponent extends Component {
     const tableWidth = numFields * 150
     const tableWidthPx = `${tableWidth}px`
     return html`
-      <div class="w-full h-full">
+      <div class="relative w-full h-full">
         ${Loading({ loading: this.local.data.length === 0 })}
         <table class="${classnames({
-          'table-fixed': true,
           'hidden': this.local.data.length === 0,
-        })}" style="width: ${tableWidthPx};">
+        })}">
           <thead class="">
-            <tr class="">
+            <tr class="" style="width: ${tableWidthPx};">
             ${headerRow.map(({ key, value }) => {
               return html`<th class="sticky top-0 bg-white border-black border-solid border-x-2 border-b-2 px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll">${key}</th>`
             })}
             </tr>
           </thead>
-          <tbody>
+          <tbody class="">
             <tr class="${classnames({
               'p-3': true,
               'hidden': this.local.activePositions[0] === 0,
             })}"
               data-is-navigation=true >
                 <td>
-                <button
-                  onclick=${() => this.loadAbove()}
-                  disabled=${this.local.activePositions[0] === 0}
-                  class="p-3 bg-black text-white">previous page</button>
+                  <button
+                    onclick=${() => this.loadAbove()}
+                    disabled=${this.local.activePositions[0] === 0}
+                    class="p-3 bg-black text-white">previous page</button>
                 </td>
             </tr>
             ${this.local.data.map((row, index) => {
@@ -158,6 +157,7 @@ class TabularComponent extends Component {
               const selected = this.local.selected === id
               return html`
                 <tr onclick=${() => this.setSelected({ row })}
+                  style="width: ${tableWidthPx};"
                   data-is-row=true
                   class="${classnames({
                     selected,
@@ -295,7 +295,18 @@ class TabularComponent extends Component {
       this.local.doNotScrollIntoView = false
       return
     }
-    selected.scrollIntoView(false)
+    const scrollOptions = {
+      block: 'nearest',
+      inline: 'nearest',
+    }
+    selected.scrollIntoView(scrollOptions)
+    const headingHeight = 30
+    const th = element.querySelector('thead tr:first-child th:first-child')
+    const thBbox = th.getBoundingClientRect()
+    const selectedBbox = selected.getBoundingClientRect()
+    if (thBbox.y + thBbox.height > selectedBbox.y && selected.previousSibling?.scrollIntoView) {
+      selected.previousSibling.scrollIntoView(scrollOptions)
+    }
   }
 }
 
