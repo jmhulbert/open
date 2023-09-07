@@ -12,8 +12,15 @@
  */
 
 import { SpatialDB, dbSpec } from './spatial-db.js'
-import { periodicityValues } from './common.js'
+import {
+  periodicityValues,
+  hasLinePeriodToConsider,
+  periodForFeature,
+} from './common.js'
 import fs from 'node:fs/promises'
+import Debug from 'debug'
+
+const debug = Debug('summarize-hydrography')
 
 const db = SpatialDB(dbSpec)
 
@@ -25,11 +32,9 @@ const resultTypes = {
         length: 0,
       }
     },
-    filter: ({ feature }) => {
-      return typeof feature?.properties?.WC_ID === 'number'
-    },
+    filter: ({ feature }) => hasLinePeriodToConsider({ feature }),
     periodicityValue: ({ feature }) => {
-      return feature?.properties?.['WC_PERIO_1']
+      return periodForFeature({ feature })
     },
   },
   waterBodies: {
@@ -40,11 +45,9 @@ const resultTypes = {
         area: 0,
       }
     },
-    filter: ({ feature }) => {
-      return typeof feature?.properties?.WB_ID === 'number'
-    },
+    filter: ({ feature }) => true,
     periodicityValue: ({ feature }) => {
-      return feature?.properties?.['WB_PERIO_1']
+      return periodForFeature({ feature })
     },
   },
 }
@@ -64,7 +67,7 @@ for await (const [key, { feature }] of db.getIteratorLine()) {
     if (!resultType.filter({ feature })) continue
     const periodicityValue = resultType.periodicityValue({ feature })
     if (!periodicityValues.has(periodicityValue)) continue
-    const length = feature?.properties?.SHAPELEN
+    const length = feature?.properties?.['lengthkm']
     if (isNaN(length)) continue
     results[type][periodicityValue].length += length
     results[type][periodicityValue].count += 1
@@ -72,10 +75,14 @@ for await (const [key, { feature }] of db.getIteratorLine()) {
 }
 
 for await (const [key, { feature }] of db.getIteratorPolygon()) {
-  const periodicityValue = feature.properties['WB_PERIO_1']
-  const area = feature?.properties?.SHAPEAREA
-  if (isNaN(area)) continue
+  const resultType = resultTypes.waterBodies
+  const periodicityValue = resultType.periodicityValue({ feature })
+  const area = feature?.properties?.['SHAPE_Area']
+  const length = feature?.properties?.['SHAPE_Leng']
+  if (isNaN(area) || isNaN(length)) continue
   if (!periodicityValues.has(periodicityValue)) continue
+  results.waterBodies[periodicityValue].count += 1
+  results.waterBodies[periodicityValue].length += length
   results.waterBodies[periodicityValue].area += area
 }
 

@@ -1,8 +1,8 @@
-const choo = require('choo')
-const html = require('choo/html')
-const MapUI = require('./src/components/map/index.js')
-const TabularComponent = require('./src/components/tabular.js')
-const SplitPane = require('./src/components/split-pane.js')
+import choo from 'choo'
+import html from 'choo/html'
+import MapUI from './src/components/map/index.js'
+import TabularComponent from './src/components/tabular.js'
+import SplitPane from './src/components/split-pane.js'
 
 const curDir = window.location.pathname
 const altCurDir = curDir.endsWith('/') ? curDir.slice(0, -1) : `${curDir}/`

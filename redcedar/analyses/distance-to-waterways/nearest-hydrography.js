@@ -99,6 +99,7 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
 
   async function findIds ({ index, x, y, featureType, cknearest, offset=0, ids=[] }) {
     const _ids = index.neighbors(x, y, cknearest).slice(offset)
+    if (_ids.length === 0) return { ids }
     for (const id of _ids) {
       const { feature } = await db.getAnalysisFeature({ analysisName, featureType, spatialIndex: id })
       if (!filterFeature(feature)) {
@@ -118,7 +119,7 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
       index,
       x,
       y,
-      get,
+      featureType,
       cknearest,
       offset,
       ids,

@@ -1,9 +1,24 @@
 import path from 'node:path'
 import {pipe} from 'mississippi'
+import Debug from 'debug'
+import {
+  lineFCodeToPeriod,
+  areaFCodeToPeriod,
+  fcodeToPeriod,
+} from './fcode-period-map.js'
 
 import common from './common.json' assert { type: 'json' };
 
+const debug = Debug('common')
+
 export const hydrographyDir = 'hydrography'
+
+export const FEATURE_TYPE = {
+  LINE: 'line',
+  POLYGON: 'polygon',
+}
+
+export const featureTypes = Object.keys(FEATURE_TYPE).map(key => FEATURE_TYPE[key])
 
 export const periodicityValues = new Set([...["Unknown", "Ephemeral", "Intermittent", "Perennial"]])
 
@@ -19,7 +34,7 @@ export const analysisSpecs = common.analysisSpecs.map(spec => {
 })
 
 export const projSpec = {
-  analysis: 'EPSG:3857',
+  analysis: 'EPSG:4269',
   nearest: 'EPSG:4326',
   reporting: 'EPSG:4326',
 }
@@ -28,6 +43,13 @@ export const projSpec = {
 export const RESULT_TYPES = {
   NCONN: 'nconn',
   NPOINT: 'npoint',
+}
+
+const featureTypeForFeature = (f) => {
+  let featureType
+  if (isNaN(f.properties?.['SHAPE_Area'])) featureType = FEATURE_TYPE.LINE
+  else featureType = FEATURE_TYPE.POLYGON
+  return featureType
 }
 
 export const nearestSpec = {
@@ -43,25 +65,18 @@ export const nearestSpec = {
       const id = nconn.properties['opoint-id']
       return id.slice(3)
     },
-    // this is the id based on the nearest feature, weather thats
-    // a water body (WB_ID) or a water course (WC)
+    // this is the id based on the nearest feature
     nfeatId: (f) => {
-      if (f.properties?.WB_ID) return `WB_ID:${f.properties.WB_ID}`
-      if (f.properties?.WC_ID) return `WC_ID:${f.properties.WC_ID}`
-      throw new Error('Should not reach, feature should be either WB or WC.')
+      const featureType = featureTypeForFeature(f)
+      return `${featureType}:${f.properties['permanent_']}`
     },
     nfeatIdParts: (f) => {
-      if (f.properties?.WB_ID) {
-        return ['WB_ID', f.properties.WB_ID]
-      }
-      else if (f.properties?.WC_ID) {
-        return ['WC_ID', f.properties.WC_ID]
-      }
-      throw new Error('Should not reach, feature should be either WB or WC.')
+      const featureType = featureTypeForFeature(f)
+      return [featureType, f.properties?.['permanent_']]
     },
     nfeatIdPartsFromString: (nfeatId) => {
-      const [dataSet, itemId] = nfeatId.split(':')
-      return [dataSet, Number(itemId)]
+      const [featureType, permanentId] = nfeatId.split(':')
+      return [featureType, permanentId]
     },
   }
 }
@@ -81,9 +96,34 @@ const stringifyArgs = [
   ']}'
 ]
 
-const periodForFeature = ({ feature }) => {
-  const period = feature.properties?.WC_PERIO_1 || feature.properties?.WB_PERIO_1
+export const linePeriodForFeature = ({ feature }) => {
+  const fcode = feature.properties?.fcode
+  const period = lineFCodeToPeriod[fcode]
   return period
+}
+
+export const hasLinePeriodToConsider = ({ feature }) => {
+  return typeof linePeriodForFeature({ feature }) === 'string'
+}
+
+export const areaPeriodForFeature = ({ feature }) => {
+  const fcode = feature.properties?.fcode
+  const period = areaFCodeToPeriod[fcode]
+  return period
+}
+
+export const hasAreaPeriodToConsider = ({ feature }) => {
+  return typeof areaPeriodForFeature({ feature }) === 'string'
+}
+
+export const periodForFeature = ({ feature }) => {
+  const fcode = feature.properties?.fcode
+  const period = fcodeToPeriod[fcode]
+  return period
+}
+
+export const hasPeriodToConsider = ({ feature }) => {
+  return typeof periodForFeature({ feature }) === 'string'
 }
 
 nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {

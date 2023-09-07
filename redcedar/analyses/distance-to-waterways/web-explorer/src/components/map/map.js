@@ -198,6 +198,7 @@ const periodicityColors = periodicity.reduce((acc, curr) => {
 const caseEqual = (prop) => (value) => {
   return ['==', ['get', prop], value]
 }
+const caseEqualHydrography = caseEqual('')
 const caseEqualWaterBody = caseEqual('WB_PERIOD_LABEL_NM')
 const caseEqualWaterCourses = caseEqual('WC_PERIOD_LABEL_NM')
 
@@ -234,7 +235,7 @@ const periodicityColorsWaterCoursesMonotone = periodicity.map((s) => {
   .concat([themeColors.transparent])
 
 theme.highlightHydrography.mapStyle.push({
-  key: 'waterh-bodies-fill',
+  key: 'water-bodies-fill',
   name: 'fill-color',
   value: periodicityColorsWaterBodyHighlight,
 })

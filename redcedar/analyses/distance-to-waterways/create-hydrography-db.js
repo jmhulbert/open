@@ -3,16 +3,14 @@
  *
  * `$ node fetch-hydrography.js`
  * 
- * Create a [spatial-db](./spatial-db) instance that holds the WA DNR
+ * Create a [spatial-db](./spatial-db) instance that holds the NHD
  * water courses and water bodies features, giving the ability to fetch
  * individual features from the database, as well as search for k nearest
  * kneighbors to a particular [lon, lat] position.
  *
  * Water course features are added to the line feature spatial index.
  *
- * Water body features with a period label (WB_PERIOD_LABEL_NM) value
- * of "Dry land" are removed, since we are looking for relationships to
- * wet areas. They are saved as polygons to do intersection tests and indexed
+ * Water body features are saved as polygons to do intersection tests and indexed
  * under the polygon feature spatial index. Each polygon is also converted
  * into a line and indexed alongside other line features in the line feature
  * spatial index.
@@ -30,7 +28,7 @@ import bboxPolygon from '@turf/bbox-polygon'
 import polygonToLine from '@turf/polygon-to-line'
 import Debug from 'debug'
 import path from 'path'
-import {hydrographyDir} from './common.js'
+import {hydrographyDir, hasPeriodToConsider} from './common.js'
 import {SpatialDB, dbSpec} from './spatial-db.js'
 
 const debug = Debug('create-hydrography-db')
@@ -46,20 +44,36 @@ const shpSpecs = [
     path: path.join(
       process.cwd(),
       hydrographyDir,
-      'DNR_Hydrography_-_Watercourses_-_Forest_Practices_Regulation.shp'),
-    filterFeature: (feature) => true,
+      'Shape',
+      'NHDFlowline_0.shp'),
+    filterFeature: ({ feature }) => hasPeriodToConsider({ feature }),
+  },
+  {
+    type: SHP_TYPE.LINE,
+    path: path.join(
+      process.cwd(),
+      hydrographyDir,
+      'Shape',
+      'NHDFlowline_1.shp'),
+    filterFeature: ({ feature }) => hasPeriodToConsider({ feature }),
+  },
+  {
+    type: SHP_TYPE.LINE,
+    path: path.join(
+      process.cwd(),
+      hydrographyDir,
+      'Shape',
+      'NHDFlowline_2.shp'),
+    filterFeature: ({ feature }) => hasPeriodToConsider({ feature }),
   },
   {
     type: SHP_TYPE.POLYGON,
     path: path.join(
       process.cwd(),
       hydrographyDir,
-      'DNR_Hydrography_-_Water_Bodies_-_Forest_Practices_Regulation.shp'),
-    filterFeature: ({ feature }) => {
-      // any feature with a period label of 'Dry land' does not need to be
-      // included in the index
-      return feature.properties.WB_PERIO_1 !== 'Dry land'
-    }
+      'Shape',
+      'NHDArea.shp'),
+    filterFeature: ({ feature }) => hasPeriodToConsider({ feature }),
   },
 ]
 

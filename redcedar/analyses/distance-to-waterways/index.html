@@ -382,22 +382,72 @@ hydrography</h1>
 <div id="approach" class="section level1">
 <h1>Approach</h1>
 <p>This analysis will take as input the redcedar observations from
-iNaturalist, reduce the set of observations to those that intersect <a href="https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about">WA
-DNR watersheds</a> and calculate the distance to the WA DNR hydrography
-using both <a href="https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about">water
-courses</a> (<a href="https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WCHYDRO.pdf">metadata</a>)
-and <a href="https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-water-bodies-forest-practices-regulation/about">water
-bodies</a> (<a href="https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WBHYDRO.pdf">metadata</a>).</p>
+iNaturalist, reduce the set of observations to those that intersect <a href="https://www.usgs.gov/national-hydrography/watershed-boundary-dataset">WA
+NHD watersheds</a> and calculate the distance to the WA NHD hydrography
+using both <a href="https://www.usgs.gov/national-hydrography/national-hydrography-dataset">NHD
+line and area features</a>. Metadata for these are captured in the <a href="https://www.usgs.gov/ngp-standards-and-specifications/national-hydrography-dataset-nhd-data-dictionary-feature-classes">Feature
+Classes</a> and <a href="https://www.usgs.gov/ngp-standards-and-specifications/national-hydrography-dataset-nhd-data-dictionary-feature-domains">Feature
+Domain</a> documents.</p>
 <p>Water courses and water bodies data carry periodicity metadata stored
-under the WC_PERIOD_LABEL_NM &amp; WB_PERIOD_LABEL_NM attributes. Values
-include <code>Unknown</code>, <code>Ephemeral</code>,
-<code>Intermittent</code>, <code>Perennial</code>. The distance to
-hydrography features analysis is carried out for subsequently more
-strict criteria, starting with including hydrography features with any
-periodicity value, all the way down to seeking distance to only
-<code>Perennial</code> hydrography features. The water bodies
-periodicity metadata also has a <code>Dry land</code> value, which is
-filtered out of the analysis.</p>
+under the <code>fcode</code> attribute. Values include
+<code>Unknown</code>, <code>Ephemeral</code>, <code>Intermittent</code>,
+<code>Perennial</code>. These are encoded across values described in the
+<a href="./fcode-period-map.js"><code>fcode-period-map</code></a>. The
+distance to hydrography features analysis is carried out for
+subsequently more strict criteria, starting with including hydrography
+features with any periodicity value, all the way down to seeking
+distance to only <code>Perennial</code> hydrography features.</p>
+<pre class="r"><code>cat(readLines(&#39;fcode-period-map.js&#39;), sep = &#39;\n&#39;)</code></pre>
+<pre><code>// Domain values mapped to hydrography categories
+// https://www.usgs.gov/ngp-standards-and-specifications/national-hydrography-dataset-nhd-data-dictionary-feature-domains
+
+export const lineFCodeToPeriod = {
+  46000: &#39;Unknown&#39;,
+  46003: &#39;Intermittent&#39;,
+  46006: &#39;Perennial&#39;,
+  46007: &#39;Ephemeral&#39;,
+  56600: &#39;Perennial&#39;,
+}
+
+export const areaFCodeToPeriod = {
+  // water bodies
+  39000: &#39;Unknown&#39;,
+  39001: &#39;Intermittent&#39;,
+  39004: &#39;Perennial&#39;,
+  39005: &#39;Intermittent&#39;,
+  39006: &#39;Intermittent&#39;,
+  39009: &#39;Perennial&#39;,
+  39010: &#39;Perennial&#39;,
+  39011: &#39;Perennial&#39;,
+  43600: &#39;Unknown&#39;,
+  43601: &#39;Unknown&#39;,
+  43603: &#39;Unknown&#39;,
+  43604: &#39;Unknown&#39;,
+  43605: &#39;Unknown&#39;,
+  43606: &#39;Unknown&#39;,
+  43607: &#39;Unknown&#39;,
+  43608: &#39;Unknown&#39;,
+  43609: &#39;Unknown&#39;,
+  43610: &#39;Unknown&#39;,
+  43611: &#39;Unknown&#39;,
+  43612: &#39;Unknown&#39;,
+  43613: &#39;Unknown&#39;,
+  43614: &#39;Intermittent&#39;,
+  43617: &#39;Unknown&#39;,
+  43618: &#39;Unknown&#39;,
+  43619: &#39;Unknown&#39;,
+  43621: &#39;Perennial&#39;,
+  43624: &#39;Unknown&#39;,
+  43625: &#39;Unknown&#39;,
+  46600: &#39;Unknown&#39;,
+  46601: &#39;Intermittent&#39;,
+  46602: &#39;Perennial&#39;,
+  49300: &#39;Perennial&#39;,
+}
+export const fcodeToPeriod = {
+  ...lineFCodeToPeriod,
+  ...areaFCodeToPeriod,
+}</code></pre>
 <p>The result will be series of geo files that represents where on
 hydrography features is the closest point, carrying the metadata as to
 which redcedar observation is responsible for the point, and which
@@ -407,8 +457,9 @@ a final CSV, <a href="./redcedar-poi-nearest-by-period.csv"><code>redcedar-poi-n
 <div id="data-wrangling" class="section level1">
 <h1>Data Wrangling</h1>
 <p>I (rubén) found that I was not able to do this analysis in R, since
-the streams shapefile referenced above is ~1gb. For that reason, the
-analysis is carried out in node.js.</p>
+the hydrography shapefiles accumualte to &gt;5GB of data. For that
+reason, the analysis is carried out in node.js using streaming
+interfaces.</p>
 <p>To setup node.js, install <a href="https://github.com/nvm-sh/nvm">nvm</a>.</p>
 <p>Run <code>nvm install 18.13.0</code> to get the correct engine.</p>
 <p>From this directory, run <code>nvm use</code> to ensure the node
@@ -417,34 +468,33 @@ analysis is carried out in node.js.</p>
 <p>Given the large file size of the hydrography shapefiles they are
 omitted from this repository, but can be downloaded by running <a href="./fetch-hydrography.js"><code>node fetch-hydrography.js</code></a>.
 This is saved to a <code>hydrography</code> directory.</p>
-<pre class="bash"><code>ls hydrography</code></pre>
-<pre><code>DNR_Hydrography_-_Water_Bodies_-_Forest_Practices_Regulation.cpg
-DNR_Hydrography_-_Water_Bodies_-_Forest_Practices_Regulation.dbf
-DNR_Hydrography_-_Water_Bodies_-_Forest_Practices_Regulation.prj
-DNR_Hydrography_-_Water_Bodies_-_Forest_Practices_Regulation.shp
-DNR_Hydrography_-_Water_Bodies_-_Forest_Practices_Regulation.shx
-DNR_Hydrography_-_Water_Bodies_-_Forest_Practices_Regulation.xml
-DNR_Hydrography_-_Watercourses_-_Forest_Practices_Regulation.cpg
-DNR_Hydrography_-_Watercourses_-_Forest_Practices_Regulation.dbf
-DNR_Hydrography_-_Watercourses_-_Forest_Practices_Regulation.prj
-DNR_Hydrography_-_Watercourses_-_Forest_Practices_Regulation.shp
-DNR_Hydrography_-_Watercourses_-_Forest_Practices_Regulation.shx
-DNR_Hydrography_-_Watercourses_-_Forest_Practices_Regulation.xml
-ROPA_WBHYDRO.pdf
-ROPA_WCHYDRO.pdf
-Watershed_Administrative_Units_-_Forest_Practices_Regulation.cpg
-Watershed_Administrative_Units_-_Forest_Practices_Regulation.dbf
-Watershed_Administrative_Units_-_Forest_Practices_Regulation.prj
-Watershed_Administrative_Units_-_Forest_Practices_Regulation.shp
-Watershed_Administrative_Units_-_Forest_Practices_Regulation.shx
-Watershed_Administrative_Units_-_Forest_Practices_Regulation.xml</code></pre>
+<pre class="bash"><code>ls -R hydrography | grep .shp</code></pre>
+<pre><code>NHDArea.shp
+NHDAreaEventFC.shp
+NHDFlowline_0.shp
+NHDFlowline_1.shp
+NHDFlowline_2.shp
+NHDLine.shp
+NHDLineEventFC.shp
+NHDPoint.shp
+NHDPointEventFC.shp
+NHDWaterbody.shp
+WBDHU10.shp
+WBDHU12.shp
+WBDHU14.shp
+WBDHU16.shp
+WBDHU2.shp
+WBDHU4.shp
+WBDHU6.shp
+WBDHU8.shp
+WBDLine.shp</code></pre>
 <p>Then run <a href="./create-hydrography-db.js"><code>node create-hydrography-db.js</code></a>
 in order to create the database of hydrography features including a
 spatial index. This will produce affordances for querying nearest
 neighbors, as well as the ability to access any one feature based on the
 nearest neighbor query. This database is saved to a
 <code>hydrography-db</code> directory. This can take some time as there
-are 1,314,690 water course features. Run the command prefixed with
+are &gt;1 million water course features. Run the command prefixed with
 <code>DEBUG=*</code> to log out progress of every 10,000th item being
 processed. Water body polygon features are converted to line features so
 that they can be queried alongside water course line features.</p>
@@ -491,7 +541,7 @@ that they can be queried alongside water course line features.</p>
   const hydrographyBlue = '#00ABFF'
   const commaSeperated = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
   const countLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
-  const lengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
+  const lengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} km`
 
   // --- courses ---
 
@@ -518,7 +568,7 @@ that they can be queried alongside water course line features.</p>
 
   const lengthPlot = ({ rows }) => {
     return Plot.plot({
-      x: { label: 'Length (m)' },
+      x: { label: 'Length (km)' },
       y: {
         label: 'Periodicity',
         domain: rows.map(lengthLabel),
@@ -569,9 +619,9 @@ that they can be queried alongside water course line features.</p>
 <p>Then run <a href="./redcedar-poi.js"><code>node redcedar-poi.js</code></a> in order
 to create a geojson point feature collection of the observation data,
 filtering out observations without valid [longitude, latitude]
-attributes, and that reside outside of the WA DNR watershed boundaries.
-This file is saved as <a href="./redcedar-poi.geojson">redcedar-poi.geojson</a>. WA DNR data is
-downloaded with the projection EPSG:3857, so the redcedar POI data is
+attributes, and that reside outside of the watershed boundaries. This
+file is saved as <a href="./redcedar-poi.geojson">redcedar-poi.geojson</a>. Hydrography data
+is downloaded with the projection EPSG:4269, so the redcedar POI data is
 reprojected into the same coordinate system.</p>
 <p><strong>Counts for each Tree Symptom value</strong></p>
 <div id="tree-symptom-count">

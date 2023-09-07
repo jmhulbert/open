@@ -22,7 +22,7 @@ import {point, multiPolygon} from '@turf/helpers'
 import pointInPolygon from '@turf/boolean-point-in-polygon'
 import proj from 'proj4'
 import shapefile from '@rubenrodriguez/shapefile'
-import {hydrographyDir, dataDir, redcedarPoiGeojsonPath} from './common.js'
+import {hydrographyDir, dataDir, redcedarPoiGeojsonPath, projSpec} from './common.js'
 import Debug from 'debug'
 
 const debug = Debug('redcedar-poi')
@@ -31,10 +31,10 @@ main()
 
 async function main () {
   const pathToPointsInput = path.join(dataDir, 'data-modified.csv')
-  const pointInputProj = 'EPSG:4326'
-  const pathToPolygon = path.join(process.cwd(), hydrographyDir, 'Watershed_Administrative_Units_-_Forest_Practices_Regulation.shp')
-  const polygonProj = 'EPSG:3857'
-  const pointOutputProj = 'EPSG:3857'
+  const pointInputProj = projSpec.reporting
+  const pathToPolygon = path.join(process.cwd(), hydrographyDir, 'Shape', 'WBDHU8.shp')
+  const polygonProj = projSpec.analysis
+  const pointOutputProj = projSpec.analysis
   const {poi} = await execute({
     pathToPointsInput,
     pointInputProj,
@@ -55,7 +55,7 @@ async function execute ({
   pointOutputProj,
 }) {
 
-  const crs = { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::3857" } }
+  const crs = { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::4269" } }
 
   // the final geojson of the POI
   const poiFc = {

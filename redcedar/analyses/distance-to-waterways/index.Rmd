@@ -20,15 +20,19 @@ library(knitr)
 
 # Approach
 
-This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA DNR watersheds](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about) and calculate the distance to the WA DNR hydrography using both [water courses](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about) ([metadata](https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WCHYDRO.pdf)) and [water bodies](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-water-bodies-forest-practices-regulation/about) ([metadata](https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WBHYDRO.pdf)).
+This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA NHD watersheds](https://www.usgs.gov/national-hydrography/watershed-boundary-dataset) and calculate the distance to the WA NHD hydrography using both [NHD line and area features](https://www.usgs.gov/national-hydrography/national-hydrography-dataset). Metadata for these are captured in the [Feature Classes](https://www.usgs.gov/ngp-standards-and-specifications/national-hydrography-dataset-nhd-data-dictionary-feature-classes) and [Feature Domain](https://www.usgs.gov/ngp-standards-and-specifications/national-hydrography-dataset-nhd-data-dictionary-feature-domains) documents.
 
-Water courses and water bodies data carry periodicity metadata stored under the  WC_PERIOD_LABEL_NM & WB_PERIOD_LABEL_NM attributes. Values include `Unknown`, `Ephemeral`, `Intermittent`, `Perennial`. The distance to hydrography features analysis is carried out for subsequently more strict criteria, starting with including hydrography features with any periodicity value, all the way down to seeking distance to only `Perennial` hydrography features. The water bodies periodicity metadata also has a `Dry land` value, which is filtered out of the analysis.
+Water courses and water bodies data carry periodicity metadata stored under the `fcode` attribute. Values include `Unknown`, `Ephemeral`, `Intermittent`, `Perennial`. These are encoded across values described in the [`fcode-period-map`](./fcode-period-map.js). The distance to hydrography features analysis is carried out for subsequently more strict criteria, starting with including hydrography features with any periodicity value, all the way down to seeking distance to only `Perennial` hydrography features.
+
+```{r comment=''}
+cat(readLines('fcode-period-map.js'), sep = '\n')
+```
 
 The result will be series of geo files that represents where on hydrography features is the closest point, carrying the metadata as to which redcedar observation is responsible for the point, and which hydrography feature the point sits on. This is all stitched together in a final CSV, [`redcedar-poi-nearest-by-period.csv`](./redcedar-poi-nearest-by-period.csv).
 
 # Data Wrangling
 
-I (rubén) found that I was not able to do this analysis in R, since the streams shapefile referenced above is ~1gb. For that reason, the analysis is carried out in node.js.
+I (rubén) found that I was not able to do this analysis in R, since the hydrography shapefiles accumualte to >5GB of data. For that reason, the analysis is carried out in node.js using streaming interfaces.
 
 To setup node.js, install [nvm](https://github.com/nvm-sh/nvm).
 
@@ -41,10 +45,10 @@ Run `npm install` to get the dependencies.
 Given the large file size of the hydrography shapefiles they are omitted from this repository, but can be downloaded by running [`node fetch-hydrography.js`](./fetch-hydrography.js). This is saved to a `hydrography` directory.
 
 ```{bash comment=''}
-ls hydrography
+ls -R hydrography | grep .shp
 ```
 
-Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order to create the database of hydrography features including a spatial index. This will produce affordances for querying nearest neighbors, as well as the ability to access any one feature based on the nearest neighbor query. This database is saved to a `hydrography-db` directory. This can take some time as there are 1,314,690 water course features. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed. Water body polygon features are converted to line features so that they can be queried alongside water course line features.
+Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order to create the database of hydrography features including a spatial index. This will produce affordances for querying nearest neighbors, as well as the ability to access any one feature based on the nearest neighbor query. This database is saved to a `hydrography-db` directory. This can take some time as there are >1 million water course features. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed. Water body polygon features are converted to line features so that they can be queried alongside water course line features.
 
 **Water Courses Summary**
 <div id="water-courses-periodicity-count"></div>
@@ -78,7 +82,7 @@ Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order 
   const hydrographyBlue = '#00ABFF'
   const commaSeperated = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
   const countLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
-  const lengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
+  const lengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} km`
 
   // --- courses ---
 
@@ -105,7 +109,7 @@ Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order 
 
   const lengthPlot = ({ rows }) => {
     return Plot.plot({
-      x: { label: 'Length (m)' },
+      x: { label: 'Length (km)' },
       y: {
         label: 'Periodicity',
         domain: rows.map(lengthLabel),
@@ -154,7 +158,7 @@ Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order 
 
 </script>
 
-Then run [`node redcedar-poi.js`](./redcedar-poi.js) in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries. This file is saved as [redcedar-poi.geojson](./redcedar-poi.geojson). WA DNR data is downloaded with the projection EPSG:3857, so the redcedar POI data is reprojected into the same coordinate system.
+Then run [`node redcedar-poi.js`](./redcedar-poi.js) in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the watershed boundaries. This file is saved as [redcedar-poi.geojson](./redcedar-poi.geojson). Hydrography data is downloaded with the projection EPSG:4269, so the redcedar POI data is reprojected into the same coordinate system.
 
 **Counts for each Tree Symptom value**
 
