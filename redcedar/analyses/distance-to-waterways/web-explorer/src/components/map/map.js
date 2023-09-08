@@ -1,6 +1,7 @@
 const maplibregl = require('maplibre-gl')
 const pmtiles = require('pmtiles')
 const chroma = require('chroma-js')
+const {fcodeToPeriod, nconnParams} = require('../../../common.js')
 
 let protocol = new pmtiles.Protocol();
 maplibregl.addProtocol("pmtiles", protocol.tile);
@@ -198,41 +199,31 @@ const periodicityColors = periodicity.reduce((acc, curr) => {
 const caseEqual = (prop) => (value) => {
   return ['==', ['get', prop], value]
 }
-const caseEqualHydrography = caseEqual('')
-const caseEqualWaterBody = caseEqual('WB_PERIOD_LABEL_NM')
-const caseEqualWaterCourses = caseEqual('WC_PERIOD_LABEL_NM')
+const caseEqualHydrography = caseEqual('fcode')
 
-const periodicityColorsWaterBodyHighlight = periodicity.map((s) => {
-    return [caseEqualWaterBody(s.key), s.hex]
+const periodicityColorsHydrographyHighlight = Object.keys(fcodeToPeriod).map(fcode => {
+    const period = fcodeToPeriod[fcode]
+    const colorSpec = periodicity.find(s => s.key === period)
+    return [caseEqualHydrography(Number(fcode)), colorSpec.hex]
   })
   .reduce((acc, curr) => {
     return acc.concat(curr)
   }, ['case'])
-  .concat([themeColors.transparent])
+  .concat([themeColors.monotone])
+  
+const periodicityColorsWaterBodyHighlight = periodicityColorsHydrographyHighlight
+const periodicityColorsWaterCoursesHighlight = periodicityColorsHydrographyHighlight
 
-const periodicityColorsWaterBodyMonotone = periodicity.map((s) => {
-    return [caseEqualWaterBody(s.key), themeColors.monotone]
+const periodicityColorsHydrographyMonotone = Object.keys(fcodeToPeriod).map(fcode => {
+    return [caseEqualHydrography(Number(fcode)), themeColors.monotone]
   })
   .reduce((acc, curr) => {
     return acc.concat(curr)
   }, ['case'])
-  .concat([themeColors.transparent])
+  .concat([themeColors.monotone])
 
-const periodicityColorsWaterCoursesHighlight = periodicity.map((s) => {
-    return [caseEqualWaterCourses(s.key), s.hex]
-  })
-  .reduce((acc, curr) => {
-    return acc.concat(curr)
-  }, ['case'])
-  .concat([themeColors.transparent])
-
-const periodicityColorsWaterCoursesMonotone = periodicity.map((s) => {
-    return [caseEqualWaterCourses(s.key), themeColors.monotone]
-  })
-  .reduce((acc, curr) => {
-    return acc.concat(curr)
-  }, ['case'])
-  .concat([themeColors.transparent])
+const periodicityColorsWaterBodyMonotone = periodicityColorsHydrographyMonotone
+const periodicityColorsWaterCoursesMonotone = periodicityColorsHydrographyMonotone
 
 theme.highlightHydrography.mapStyle.push({
   key: 'water-bodies-fill',
@@ -247,7 +238,7 @@ theme.highlightHydrography.mapStyle.push({
 })
 
 theme.highlightPoi.mapStyle.push({
-  key: 'waterh-bodies-fill',
+  key: 'water-bodies-fill',
   name: 'fill-color',
   value: periodicityColorsWaterBodyMonotone,
 })
@@ -299,36 +290,44 @@ const nconnLayers = ({ key }) => {
   ]
 }
 
-const analysisSpecs = [
-  {
-    key: 'period-all',
-    source: geojsonSource({ data: 'redcedar-poi-nearest-period-all-nconn-epsg-4326.geojson' }),
-  },
-  {
-    key: 'period-min-eph',
-    source: geojsonSource({ data: 'redcedar-poi-nearest-period-min-eph-nconn-epsg-4326.geojson' }),
-  },
-  {
-    key: 'period-min-int',
-    source: geojsonSource({ data: 'redcedar-poi-nearest-period-min-int-nconn-epsg-4326.geojson' }),
-  },
-  {
-    key: 'period-per',
-    source: geojsonSource({ data: 'redcedar-poi-nearest-period-per-nconn-epsg-4326.geojson' }),
-  },
-  {
-    key: 'period-unk',
-    source: geojsonSource({ data: 'redcedar-poi-nearest-period-unk-nconn-epsg-4326.geojson' }),
-  },
-  {
-    key: 'period-eph',
-    source: geojsonSource({ data: 'redcedar-poi-nearest-period-eph-nconn-epsg-4326.geojson' }),
-  },
-  {
-    key: 'period-int',
-    source: geojsonSource({ data: 'redcedar-poi-nearest-period-int-nconn-epsg-4326.geojson' }),
-  },
-]
+// TODO replace this with common args?
+// - check to see if this worked
+const analysisSpecs = nconnParams.map((params) => {
+  return {
+    key: params.analysisSpecName,
+    source: geojsonSource({ data: params.reportingFileName }),
+  }
+})
+// const analysisSpecs = [
+//   {
+//     key: 'period-all',
+//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-all-nconn-epsg-4326.geojson' }),
+//   },
+//   {
+//     key: 'period-min-eph',
+//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-min-eph-nconn-epsg-4326.geojson' }),
+//   },
+//   {
+//     key: 'period-min-int',
+//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-min-int-nconn-epsg-4326.geojson' }),
+//   },
+//   {
+//     key: 'period-per',
+//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-per-nconn-epsg-4326.geojson' }),
+//   },
+//   {
+//     key: 'period-unk',
+//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-unk-nconn-epsg-4326.geojson' }),
+//   },
+//   {
+//     key: 'period-eph',
+//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-eph-nconn-epsg-4326.geojson' }),
+//   },
+//   {
+//     key: 'period-int',
+//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-int-nconn-epsg-4326.geojson' }),
+//   },
+// ]
 
 const nconnSourceSpecs = analysisSpecs.map(spec => {
   spec.layers = nconnLayers(spec)
@@ -344,7 +343,7 @@ const sourceSpecs = [
     },
     layers: [
       {
-        id:"waterh-shed-fill",
+        id:"water-shed-fill",
         type:"fill",
         source: "waterSheds",
         "source-layer":"water-sheds",
@@ -380,7 +379,7 @@ const sourceSpecs = [
     },
     layers: [
       {
-        id:"waterh-bodies-fill",
+        id:"water-bodies-fill",
         type:"fill",
         source: "waterBodies",
         "source-layer":"water-bodies",

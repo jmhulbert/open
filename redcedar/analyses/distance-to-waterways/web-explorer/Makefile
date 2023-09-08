@@ -13,8 +13,8 @@ geojson/NHDFlowline_1.geojson: geojson
 geojson/NHDFlowline_2.geojson: geojson
 	npx shp2json ../hydrography/Shape/NHDFlowline_2.shp | npx project-geojson -s EPSG:4269 -t EPSG:4326 -o geojson/NHDFlowline_2.geojson
 
-geojson/NHDArea.geojson: geojson
-	npx shp2json ../hydrography/Shape/NHDArea.shp | npx project-geojson -s EPSG:4269 -t EPSG:4326 -o geojson/NHDArea.geojson	
+geojson/NHDWaterbody.geojson: geojson
+	npx shp2json ../hydrography/Shape/NHDWaterbody.shp | npx project-geojson -s EPSG:4269 -t EPSG:4326 -o geojson/NHDWaterbody.geojson	
 
 mbtiles:
 	mkdir -p "mbtiles"
@@ -22,11 +22,11 @@ mbtiles:
 mbtiles/nhd-water-sheds.mbtiles: mbtiles geojson/WBDHU8.geojson
 	tippecanoe -zg -o mbtiles/nhd-water-sheds.mbtiles -l water-sheds -n "NDH water sheds" --drop-densest-as-needed geojson/WBDHU8.geojson
 
-mbtiles/nhd-water-bodies.mbtiles: mbtiles geojson/NHDArea.geojson
-	tippecanoe -zg -o mbtiles/nhd-water-bodies.mbtiles -l water-bodies -n "NHD water bodies" --drop-densest-as-needed geojson/NHDArea.geojson
+mbtiles/nhd-water-bodies.mbtiles: mbtiles geojson/NHDWaterbody.geojson
+	tippecanoe -zg -o mbtiles/nhd-water-bodies.mbtiles -l water-bodies -n "NHD water bodies" --drop-densest-as-needed geojson/NHDWaterbody.geojson
 
 mbtiles/nhd-water-courses.mbtiles: mbtiles geojson/NHDFlowline_0.geojson geojson/NHDFlowline_1.geojson geojson/NHDFlowline_2.geojson
-	tippecanoe -zg -o mbtiles/nhd-water-courses.mbtiles -l water-courses -n "NHD water courses" --coalesce-densest-as-needed --extend-zooms-if-still-dropping geojson/NHDFlowline_0.geojson geojson/NHDFlowline_1.geojson geojson/NHDFlowline_2.geojson
+	tippecanoe -zg -o mbtiles/nhd-water-courses.mbtiles -l water-courses -n "NHD water courses" --drop-densest-as-needed geojson/NHDFlowline_0.geojson geojson/NHDFlowline_1.geojson geojson/NHDFlowline_2.geojson
 
 pmtiles-dir: 
 	mkdir -p "pmtiles"

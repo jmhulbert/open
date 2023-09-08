@@ -16,8 +16,11 @@ import {
   periodicityValues,
   hasLinePeriodToConsider,
   periodForFeature,
+  stringifyArgs,
 } from './common.js'
 import fs from 'node:fs/promises'
+import {stringify} from 'JSONStream'
+import { through, pipe } from 'mississippi'
 import Debug from 'debug'
 
 const debug = Debug('summarize-hydrography')
@@ -52,6 +55,13 @@ const resultTypes = {
   },
 }
 
+const GeojsonWriter = ({ filePath }) => {
+  const write = through.obj()
+  pipe(write, stringify(...stringifyArgs), fs.createWriteStream(filePath))
+
+  return { write }
+}
+
 const results = {}
 
 for (const type in resultTypes) {
@@ -61,7 +71,10 @@ for (const type in resultTypes) {
   }
 }
 
+const lineWriter = GeojsonWriter({ filePath: 'summarize-hydrography-lines.geojson' })
+
 for await (const [key, { feature }] of db.getIteratorLine()) {
+  lineWriter.write(feature)
   for (const type in resultTypes) {
     const resultType = resultTypes[type]
     if (!resultType.filter({ feature })) continue
@@ -74,7 +87,12 @@ for await (const [key, { feature }] of db.getIteratorLine()) {
   }
 }
 
+lineWriter.write(null)
+
+const polygonWriter = GeojsonWriter({ filePath: 'summarize-hydrography-polygon.geojson' })
+
 for await (const [key, { feature }] of db.getIteratorPolygon()) {
+  polygonWriter.write(feature)
   const resultType = resultTypes.waterBodies
   const periodicityValue = resultType.periodicityValue({ feature })
   const area = feature?.properties?.['SHAPE_Area']
@@ -85,5 +103,7 @@ for await (const [key, { feature }] of db.getIteratorPolygon()) {
   results.waterBodies[periodicityValue].length += length
   results.waterBodies[periodicityValue].area += area
 }
+
+polygonWriter.write(null)
 
 await fs.writeFile('summarized-hydrography.json', JSON.stringify(results, null, 2))

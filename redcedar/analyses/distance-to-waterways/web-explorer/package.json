@@ -13,12 +13,15 @@
     "copy:csv": "run-p copy:csv:*",
     "copy": "run-p copy:*",
     "dev:style": "postcss -w -o public/main.css main.css",
+    "dev:parent": "esbuild ../common.js --outfile=./common.js --bundle --platform=node --target=node10.4 --watch",
     "dev:js": "run-p copy:* && NODE_ENV=development watchify index.js -o public/bundle.js",
     "dev:serve": "serve public",
+    "dev": "run-p dev:*",
     "build:style": "run-p mkdir:* && postcss -o dist/main.css main.css",
+    "build:parent": "esbuild ../common.js --outfile=./common.js --bundle --platform=node --target=node10.4",
     "build:js": "run-p copy:* && NODE_ENV=production browserify index.js > dist/bundle.js",
     "build": "run-p build:*",
-    "start": "run-p dev:*"
+    "start": "npm run dev"
   },
   "author": "",
   "license": "ISC",
@@ -29,6 +32,7 @@
     "chroma-js": "^2.4.2",
     "classnames": "^2.3.2",
     "d3-fetch": "^3.0.1",
+    "esmify": "^2.1.1",
     "level": "^8.0.0",
     "maplibre-gl": "^3.2.2",
     "papaparse": "^5.4.1",
@@ -41,6 +45,7 @@
     "@mapbox/mbview": "^5.1.0",
     "@rubenrodriguez/shapefile": "^0.6.7",
     "browserify": "^17.0.0",
+    "esbuild": "^0.19.2",
     "npm-run-all": "^4.1.5",
     "postcss-cli": "^10.1.0",
     "project-geojson": "^1.0.2",
@@ -50,6 +55,11 @@
   "browserify": {
     "transform": [
       "@browserify/envify"
+    ],
+    "plugin": [
+      [
+        "esmify"
+      ]
     ]
   }
 }

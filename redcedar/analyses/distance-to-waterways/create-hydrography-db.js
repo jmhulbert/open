@@ -23,12 +23,22 @@
  * The entire database is written to the `hydrography-db` directory.
  */
 
+import fs from 'node:fs'
 import shapefile from '@rubenrodriguez/shapefile'
 import bboxPolygon from '@turf/bbox-polygon'
 import polygonToLine from '@turf/polygon-to-line'
+import pointOnFeature from '@turf/point-on-feature'
+import pointInPolygon from '@turf/boolean-point-in-polygon'
 import Debug from 'debug'
 import path from 'path'
-import {hydrographyDir, hasPeriodToConsider} from './common.js'
+import {through} from 'mississippi'
+import {parse} from 'geojson-stream'
+import {
+  hydrographyDir,
+  hasPeriodToConsider,
+  redcedarPoiGeojsonPath,
+  pipePromise,
+} from './common.js'
 import {SpatialDB, dbSpec} from './spatial-db.js'
 
 const debug = Debug('create-hydrography-db')
@@ -72,23 +82,89 @@ const shpSpecs = [
       process.cwd(),
       hydrographyDir,
       'Shape',
-      'NHDArea.shp'),
+      'NHDWaterbody.shp'),
     filterFeature: ({ feature }) => hasPeriodToConsider({ feature }),
   },
 ]
 
+const watershedSpecs = {
+  path: path.join(
+    process.cwd(),
+    hydrographyDir,
+    'Shape',
+    'WBDHU10.shp'
+    ),
+}
+
 const db = SpatialDB(dbSpec)
 
-const onPolygon = ({ filterFeature }) => async ({ result }) => {
+const WatershedIndex = async () => {
+  const onResult = async ({ result }) => {
+    const feature = result.value
+    await db.watershedPut({ feature })
+  }
+  const reader = shpReader(watershedSpecs)
+  await reader.open()
+  await reader.read({ onResult })
+  const watershedIndex = await db.watershedCreateIndex()
+  return { watershedIndex }
+}
+
+// feature is a hydrography feature
+// - get the nearest watershed
+// - from that watershed see if any POI intersects it
+// - if so, keep it around for the reaminder of the analysis
+const hydrographyIntersectsPOIWatershed = async ({ watershedIndex, feature }) => {
+  let toConsider = false
+  const pnt = pointOnFeature(feature)
+  const [x, y] = pnt.geometry.coordinates
+  const ids = watershedIndex.neighbors(x, y, 10)
+  let watershed
+  for (const id of ids) {
+    const checkWatershed = await db.watershedGet(id)
+    if (pointInPolygon(pnt, checkWatershed.feature)) {
+      watershed = checkWatershed
+      break
+    }
+  }
+  if (!watershed) {
+    debug('no-watershed-found')
+    return toConsider
+  }
+  // is there a poi in the watershed
+  try {
+    await pipePromise(
+      fs.createReadStream(redcedarPoiGeojsonPath),
+      parse(),
+      through.obj(async (poi, enc, next) => {
+        if (pointInPolygon(poi, watershed.feature)) {
+          toConsider = true
+          next(new Error('early-exit'))
+        }
+        else {
+          next()
+        }
+      })
+    ) 
+  }
+  catch (error) {
+    // swallow error, we wanted to early exit
+  }
+  return toConsider
+}
+
+const onPolygon = ({ filterFeature, watershedIndex }) => async ({ result }) => {
   const feature = result.value
   if (!filterFeature({ feature })) return
+  if (!await hydrographyIntersectsPOIWatershed({ feature, watershedIndex })) return
   const line = polygonToLine(feature)
   await db.putPolygon({ feature })
   await db.putLine({ feature: line })
 }
-const onLine = ({ filterFeature }) => async ({ result }) => {
+const onLine = ({ filterFeature, watershedIndex }) => async ({ result }) => {
   const feature = result.value
   if (!filterFeature({ feature })) return
+  if (!await hydrographyIntersectsPOIWatershed({ feature, watershedIndex })) return
   await db.putLine({ feature })
 }
 
@@ -113,12 +189,14 @@ const shpReader = (shpSpec) => {
   return { open, read }
 }
 
+const { watershedIndex } = await WatershedIndex()
+
 for (const shpSpec of shpSpecs) {
   const reader = shpReader(shpSpec)
   await reader.open()
   const onResult = shpSpec.type === SHP_TYPE.POLYGON
     ? onPolygon
     : onLine
-  await reader.read({ onResult: onResult({ ...shpSpec }) })
+  await reader.read({ onResult: onResult({ ...shpSpec, watershedIndex }) })
 }
 await db.createIndicies()

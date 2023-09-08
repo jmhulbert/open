@@ -7,6 +7,8 @@ import {
   fcodeToPeriod,
 } from './fcode-period-map.js'
 
+export { fcodeToPeriod }
+
 import common from './common.json' assert { type: 'json' };
 
 const debug = Debug('common')
@@ -81,12 +83,12 @@ export const nearestSpec = {
   }
 }
 
-const stringifyArgs = [
+export const stringifyArgs = [
   `{
     "crs": {
       "type": "name",
       "properties": {
-        "name": "urn:ogc:def:crs:EPSG::3857"
+        "name": "${ projSpec.analysis }"
       }
     },
     "type": "FeatureCollection",
@@ -147,6 +149,8 @@ nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {
         type: RESULT_TYPES.NCONN,
         valueFn: (row) => row.nconn,
         fileName: `${baseResultFileName}-nconn.geojson`,
+        analysisSpecName: spec.name,
+        reportingFileName: `${baseResultFileName}-nconn-epsg-4326.geojson`,
         stringifyArgs,
       }
     ],
@@ -171,6 +175,13 @@ nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {
     ],
   }
 })
+
+const {analysisParams} = nearestSpec
+const resultSpecs = analysisParams.reduce((acc, curr) => {
+  return acc.concat(curr.resultSpecs)
+}, [])
+
+export const nconnParams = resultSpecs.filter(s => s.type === RESULT_TYPES.NCONN)
 
 export const pipePromise = (...args) => {
   return new Promise((resolve, reject) => {

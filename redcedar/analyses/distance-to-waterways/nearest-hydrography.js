@@ -75,7 +75,7 @@ import proj from 'proj4'
 const db = SpatialDB(dbSpec)
 
 const debug = Debug('nearest')
-const knearest = 10
+const knearest = 5
 const {analysisParams, idSpec} = nearestSpec
 
 async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
@@ -88,6 +88,7 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
   let lineIndex
   let polygonIndex
   let filterFeature = () => true
+  let poiCount = 0
 
   const setParams = async (params) => {
     filterFeature = params.filterFeature
@@ -95,6 +96,7 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
     const indicies = await db.getSpatialIndicies({ analysisName })
     lineIndex = indicies.lineIndex
     polygonIndex = indicies.polygonIndex
+    poiCount = 0
   }
 
   async function findIds ({ index, x, y, featureType, cknearest, offset=0, ids=[] }) {
@@ -154,6 +156,8 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
   }
 
   const poiStream = () => through.obj(async (poi, enc, next) => {
+    poiCount += 1
+    debug({ poiCount })
     const {isInPolygon, polygon} = await inPolygon(poi)
     if (isInPolygon) {
       const nfeat = polygon
@@ -205,6 +209,7 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
       const cnpoint = nearestPointOnLine(lineCoords, pointCoords, nearestOptions)
       cnpoint.properties.dist = kilometersToMeters(cnpoint.properties.dist)
       if (cnpoint.properties.dist < npoint.properties.dist) {
+        debug('new-nearest')
         // return to projSpec.analysis
         cnpoint.geometry.coordinates = proj(projSpec.nearest, projSpec.analysis, cnpoint.geometry.coordinates)
         npoint = { ...cnpoint }

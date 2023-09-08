@@ -30,7 +30,8 @@ const { analysisParams, idSpec } = nearestSpec
 const { nfeatIdParts, nfeatIdPartsFromString } = idSpec
 
 export const dbSpec = {
-  path: `${hydrographyDir}-db`,
+  // TODO revert this back to just `-db`
+  path: `${hydrographyDir}-db-wb`,
   options: {
     keyEncoding: bytewise,
     valueEncoding: 'json',
@@ -57,8 +58,78 @@ export const dbSpec = {
   analysisParams,
 }
 
+export const featureSpecs = [
+  {
+    label: 'watershed',
+    idForFeature: ({ feature }) => {
+      return feature.properties.tnmid
+    },
+  },
+]
+
 export const SpatialDB = (dbSpec) => {
   const db = new Level(dbSpec.path, dbSpec.options)
+
+  let watershedPutCount = -1
+
+  db.addFeatureIndex = ({ label, idForFeature }) => {
+    let putCount = -1
+    const idKey = (id) => [label, 'id', id]
+    const putKey = (putCount) => [label, 'put', putCount]
+    const indexKey = () => [label, 'index']
+
+    db[`${label}Put`] = async ({ feature }) => {
+      putCount++
+      const id = idForFeature({ feature })
+      debug({ putCount, id })
+      await db.put(idKey(id), { feature, putCount })
+      await db.put(putKey(putCount), { id })
+    }
+
+    db[`${label}Get`] = async (putCount) => {
+      const { id } = await db.get(putKey(putCount))
+      return await db.get(idKey(id))
+    }
+
+    db[`${label}CreateIndex`] = async () => {
+      const iteratorOptions = {
+        gt: putKey(null),
+        lt: putKey(undefined),
+      }
+      const keys = db.keys({
+        ...iteratorOptions,
+        reverse: true,
+        limit: 1,
+      })
+      let count
+      for await (const key of keys) {
+        count = key[2]
+      }
+      const index = new Flatbush(count + 1)
+      const keyValues = db.iterator(iteratorOptions)
+      for await (const [key, { id }] of keyValues) {
+        const { feature } = await db.get(idKey(id))
+        const fbbox = bbox(feature)
+        const i = index.add(fbbox[0], fbbox[1], fbbox[2], fbbox[3])
+        equal(i, key[2])
+      }
+      index.finish()
+      await db.put(indexKey(), Buffer.from(index.data).toJSON())
+      return index
+    }
+
+    db[`${label}GetIndex`] = async () => {
+      const bufJson = await db.get(indexKey())
+      const buf = Buffer.from(bufJson)
+      const indexData = new Int8Array(buf)
+      const index = Flatbush.from(indexData.buffer)
+      return index
+    }
+  }
+
+  for (const featureSpec of featureSpecs) {
+    db.addFeatureIndex(featureSpec)
+  }
 
   // the overall count. individual counts will be mapped to this
   // global count, referred to as the feture id in `lineFeatureKey`
