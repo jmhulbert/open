@@ -719,11 +719,13 @@ redcedar-poi-nearest-period-per-nconn-epsg-4326.geojson
 redcedar-poi-nearest-period-unk-nconn-epsg-4326.geojson</code></pre>
 <div id="results" class="section level3">
 <h3>Results</h3>
-<p>The following charts summarize the data produced. First is a bar
-chart that shows the total number of observations for each Tree Canopy
-Symptom value. Following is a series of boxplots that shows the
-distribution of distance to hydrography feature values across each of
-the Tree Symptom values for each analysis.</p>
+<p>The following charts summarize the data produced. Each subanalysis
+has a box plot to show the distribution of distance to waterways by tree
+symptom classification. Followed by a bar chart to count the number of
+tree observations associated with each hydrography classification. If
+there are significant statistical outliers in the box plot, another one
+is produced with outliers removed and a count of tree observations for
+each hydrography classification.</p>
 <p><strong>Distribution of distance to hydrography</strong></p>
 <div id="analysis-spec-plots">
 
@@ -936,7 +938,7 @@ border: 2px solid black;
     const heading = document.createElement('p')
     const description = document.createElement('p')
     heading.innerHTML = `<strong>subanalysis: ${spec.name}</strong>`
-    description.innerText = `Includes hydrography features with the following period (\`WB_PERIOD_LABEL_NM\` or \`WC_PERIOD_LABEL_NM\`) values: ${spec.include.join(', ')}.`
+    description.innerText = `Includes hydrography features with the following period (\`fcode\` hydrography category) values: ${spec.include.join(', ')}.`
     sectionEl.append(heading)
     sectionEl.append(description)
     const x = `${spec.name}-dist`
@@ -948,6 +950,36 @@ border: 2px solid black;
     const yField = `${spec.name}-nfeat-period`
     const count = countPlot({ yField, rows })
     sectionEl.append(count)
+
+    // calc quantiles to remove outliers
+    // https://www.scribbr.com/statistics/outliers/
+    rows.sort((a, b) => {
+      if (a[x] < b[x]) return -1
+      if (a[x] > b[x]) return 1
+      return 0
+    })
+    const medianIndex = Math.floor(rows.length / 2)
+    const q1MedianIndex = Math.floor((medianIndex - 1) / 2)
+    const q3MedianIndex = Math.floor(((medianIndex - 1)  / 2 + medianIndex))
+    const q1Median = rows[q1MedianIndex][x]
+    const q3Median = rows[q3MedianIndex][x]
+    const iqr = q3Median - q1Median
+    const fenceMultiplier = 5
+    const upperFence = q3Median + (fenceMultiplier * iqr)
+    const lowerFence = q1Median - (fenceMultiplier * iqr)
+
+    const filteredRows = rows.filter(r => r[x] <= upperFence)
+
+    if (filteredRows.length < rows.length) {
+      const outlierDescription = document.createElement('p')
+      outlierDescription.innerText = `Below are the same graphs with statlistical outliers (${fenceMultiplier}x interquantile range) removed. We are left with ${filteredRows.length} connections instead of ${rows.length}.`
+      sectionEl.append(outlierDescription)
+      const outlierBox = boxPlot({ x, rows: filteredRows, symptoms, observations })
+      sectionEl.append(outlierBox)
+      const outlierCount = countPlot({ yField, rows: filteredRows })
+      sectionEl.append(outlierCount)
+    }
+
     analysisSpecPlotsEl.append(sectionEl)
   }
 </script>
