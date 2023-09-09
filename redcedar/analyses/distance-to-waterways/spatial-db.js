@@ -30,8 +30,7 @@ const { analysisParams, idSpec } = nearestSpec
 const { nfeatIdParts, nfeatIdPartsFromString } = idSpec
 
 export const dbSpec = {
-  // TODO revert this back to just `-db`
-  path: `${hydrographyDir}-db-wb`,
+  path: `${hydrographyDir}-db`,
   options: {
     keyEncoding: bytewise,
     valueEncoding: 'json',
@@ -136,11 +135,10 @@ export const SpatialDB = (dbSpec) => {
     db.addFeatureIndex(featureSpec)
   }
 
-  // the overall count. individual counts will be mapped to this
-  // global count, referred to as the feture id in `lineFeatureKey`
-  // and `polygonFeatureKey`
-  let putCount = -1
   const counts = {}
+  for (const featureType of featureTypes) {
+    counts[featureType] = -1
+  }
   for (const { analysisSpec } of dbSpec.analysisParams) {
     counts[analysisSpec.name] = {}
     for (const featureType of featureTypes) {
@@ -149,8 +147,9 @@ export const SpatialDB = (dbSpec) => {
   }
 
   const put = ({ featureType }) => async ({ feature }) => {
-    putCount += 1
-    if (putCount % 10000 === 0) debug({ putCount })
+    counts[featureType] += 1
+    const putCount = counts[featureType]
+    if (putCount % 10000 === 0) debug({ featureType, putCount })
     for (const params of dbSpec.analysisParams) {
       const { name, filterFeature } = params.analysisSpec
       if (!filterFeature(feature)) continue

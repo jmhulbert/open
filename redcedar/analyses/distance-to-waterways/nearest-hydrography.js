@@ -2,8 +2,8 @@
  * Prerequisites for running this file include running:
  *
  * `$ node fetch-hydrography.js`
- * `$ node create-hydrography-db.js`
  * `$ node redcedar-poi.js`
+ * `$ node create-hydrography-db.js`
  *
  * Using the hydrography spatial index, and the redcedar observation
  * POI, determine the distance to the closest hydrography feature. There
