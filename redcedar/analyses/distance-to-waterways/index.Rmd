@@ -1,5 +1,5 @@
 ---
-title: "Distance to Waterways - WA DNR hydrography"
+title: "Distance to Waterways - WA NHD hydrography"
 author: 'Contributors: [Rubén Rodríguez](http://rubenrodriguez.me), Joey Hulbert'
 output: html_document
 ---
@@ -19,6 +19,8 @@ library(knitr)
 ```
 
 # Approach
+
+This analysis was completed against [WA DNR hydrography](../distance-to-waterways--wa-dnr/), but we found that the number of streams that were of `Unknown` period to didn't assist in proving or disproving this hypothesis. The same analysis is carried out using WA NDH data below.
 
 This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA NHD watersheds](https://www.usgs.gov/national-hydrography/watershed-boundary-dataset) and calculate the distance to the WA NHD hydrography using both [NHD line and area features](https://www.usgs.gov/national-hydrography/national-hydrography-dataset). Metadata for these are captured in the [Feature Classes](https://www.usgs.gov/ngp-standards-and-specifications/national-hydrography-dataset-nhd-data-dictionary-feature-classes) and [Feature Domain](https://www.usgs.gov/ngp-standards-and-specifications/national-hydrography-dataset-nhd-data-dictionary-feature-domains) documents.
 
