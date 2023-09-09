@@ -1,0 +1,53 @@
+{
+  "name": "web-map",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "mkdir:dist": "mkdir -p dist",
+    "copy:geojson:dist": "run-p mkdir:* && cp ../*epsg-4326.geojson ./dist/",
+    "copy:geojson:public": "run-p mkdir:* && cp ../*epsg-4326.geojson ./public/",
+    "copy:geojson": "run-p copy:geojson:*",
+    "copy:csv:dist": "cp ../*.csv ./dist/",
+    "copy:csv:public": "cp ../*.csv ./public/",
+    "copy:csv": "run-p copy:csv:*",
+    "copy": "run-p copy:*",
+    "dev:style": "postcss -w -o public/main.css main.css",
+    "dev:js": "run-p copy:* && NODE_ENV=development watchify index.js -o public/bundle.js",
+    "dev:serve": "serve public",
+    "build:style": "run-p mkdir:* && postcss -o dist/main.css main.css",
+    "build:js": "run-p copy:* && NODE_ENV=production browserify index.js > dist/bundle.js",
+    "build": "run-p build:*",
+    "start": "run-p dev:*"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@mapbox/mbview": "^5.1.0",
+    "autoprefixer": "^10.4.14",
+    "bytewise": "^1.1.0",
+    "choo": "^7.1.0",
+    "chroma-js": "^2.4.2",
+    "classnames": "^2.3.2",
+    "d3-fetch": "^3.0.1",
+    "level": "^8.0.0",
+    "maplibre-gl": "^3.2.2",
+    "papaparse": "^5.4.1",
+    "pmtiles": "^2.10.0",
+    "postcss": "^8.4.27",
+    "tailwindcss": "^3.3.3"
+  },
+  "devDependencies": {
+    "@browserify/envify": "^6.0.0",
+    "browserify": "^17.0.0",
+    "npm-run-all": "^4.1.5",
+    "postcss-cli": "^10.1.0",
+    "serve": "^14.2.0",
+    "watchify": "^4.0.0"
+  },
+  "browserify": {
+    "transform": [
+      "@browserify/envify"
+    ]
+  }
+}

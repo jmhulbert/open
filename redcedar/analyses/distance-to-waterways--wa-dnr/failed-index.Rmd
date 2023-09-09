@@ -1,0 +1,86 @@
+---
+title: "Distance to Waterways - WA DNR hydrography"
+author: 'Contributors: Joey Hulbert, Rubén Rodríguez'
+output: html_document
+---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE,warning=FALSE}
+library(knitr)
+library(sf)
+library(here)
+library(data.table)
+library(tidyverse)
+```
+
+# Approach
+
+This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA DNR watersheds](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about) and calculate the distance to the [stream centerlines from WA DNR](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about).
+
+The result will be a point geo file that represents where on the stream is the closest point, carrying the metadata as to which redcedar observation is responsible for the point, and which stream id the point sits on.
+
+# Failed analysis done in R
+
+# Data Wrangling
+
+### Import iNat Data - Empirical Tree Points (Response variables)
+
+The steps for wrangling the [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
+
+import redcedar csv as a dataframe. it looks like we can not read directly into an `sf` object because the multiple fields that determine the point geometry. we then filter out empty longitude and latitude fields. finally we create our `sf` object. 
+
+```{r}
+redcedar_path <- here("redcedar", "data", "data-modified.csv")
+redcedar_path
+redcedar_df <- read.csv(redcedar_path)
+redcedar_df <- redcedar_df %>% filter (longitude!="")
+redcedar_df <- redcedar_df %>% filter (latitude!="")
+redcedar_sf = st_as_sf(redcedar_df, coords = c("longitude", "latitude"))
+```
+
+Define the projection to [EPSG:4326](https://epsg.io/4326) in order to properly reproject into [EPSG:3857](https://epsg.io/3857) to match the DNR streams and watershed layers.
+
+```{r}
+redcedar_sf <- redcedar_sf %>% st_set_crs(4326)
+redcedar_sf_projected <- redcedar_sf %>% st_transform(3857)
+```
+
+Read in watershed and stream centerlines (hydrography) to use for analysis. this data is ~1gb so it does not live in the git repo.
+
+```{r}
+streams_path <- here("redcedar", "data", "DNR_Hydrography_-_Watercourses_-_Forest_Practices_Regulation", "DNR_Hydrography_-_Watercourses_-_Forest_Practices_Regulation.shp")
+streams_sf <- st_read(streams_path)
+watersheds_path <- here("redcedar", "data", "Watershed_Administrative_Units_-_Forest_Practices_Regulation", "Watershed_Administrative_Units_-_Forest_Practices_Regulation.shp")
+watersheds_sf <- st_read(watersheds_path)
+```
+
+# Distance to Water Analysis
+
+Intersect the redcedar observations with watersheds in order to limit the dataset to our area of interest, and where we have streams.
+
+```{r}
+poi_sf <- st_intersection(redcedar_sf_projected, watersheds_sf)
+poi_path <- here("redcedar", "analyses", "distance-to-waterways", "redcedar-poi.geojson")
+st_write(poi_sf, poi_path)
+```
+
+Get point on line positions for observations to stream centerlines.
+
+```{r}
+distances_sf = st_nearest_points(poi_sf, streams_sf)
+distances_path = here("redcedar", "analyses", "distance-to-waterways", "distances.geojson")
+st_write(distances_sf, distances_path)
+```
+
+NOTE: this does not seem be able to be processsed on my machine. the streams are perhaps too big for this to be done in memory? i looked into using DuckDB for this, as it looks like it can read and write from disk, and has a spatial extension for doing spatial queries, but it does not seem to support the nearest points query that I am seeking to do.
+
+Given the above note, I will be reaching for node.js to complete this part of the analysis, as I am familiar with how to process the streams shapefile in an incremental streaming approach.
