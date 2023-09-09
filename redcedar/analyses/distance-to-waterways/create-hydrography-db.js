@@ -88,19 +88,45 @@ const shpSpecs = [
 ]
 
 const watershedSpecs = {
+  type: SHP_TYPE.POLYGON,
   path: path.join(
     process.cwd(),
     hydrographyDir,
     'Shape',
     'WBDHU10.shp'
     ),
+  filterFeature: async ({ feature }) => {
+    let intersects = false
+    // is there a poi in the watershed
+    try {
+      await pipePromise(
+        fs.createReadStream(redcedarPoiGeojsonPath),
+        parse(),
+        through.obj(async (poi, enc, next) => {
+          if (pointInPolygon(poi, feature)) {
+            intersects = true
+            next(new Error('early-exit'))
+          }
+          else {
+            next()
+          }
+        })
+      ) 
+    }
+    catch (error) {
+      // swallow error, we wanted to early exit
+    }
+    return intersects
+  },
 }
 
 const db = SpatialDB(dbSpec)
 
-const WatershedIndex = async () => {
+// only index watersheds that intersect POI
+const WatershedIndex = async (watershedSpecs) => {
   const onResult = async ({ result }) => {
     const feature = result.value
+    if (!await watershedSpecs.filterFeature({ feature })) return
     await db.watershedPut({ feature })
   }
   const reader = shpReader(watershedSpecs)
@@ -111,46 +137,21 @@ const WatershedIndex = async () => {
 }
 
 // feature is a hydrography feature
-// - get the nearest watershed
-// - from that watershed see if any POI intersects it
-// - if so, keep it around for the reaminder of the analysis
+// - get the nearest watershed from the index
+// - see if the feature intersects any of them. if so. keep it
 const hydrographyIntersectsPOIWatershed = async ({ watershedIndex, feature }) => {
-  let toConsider = false
+  let intersects = false
   const pnt = pointOnFeature(feature)
   const [x, y] = pnt.geometry.coordinates
-  const ids = watershedIndex.neighbors(x, y, 10)
-  let watershed
+  const ids = watershedIndex.neighbors(x, y, 5)
   for (const id of ids) {
     const checkWatershed = await db.watershedGet(id)
     if (pointInPolygon(pnt, checkWatershed.feature)) {
-      watershed = checkWatershed
+      intersects = true
       break
     }
   }
-  if (!watershed) {
-    debug('no-watershed-found')
-    return toConsider
-  }
-  // is there a poi in the watershed
-  try {
-    await pipePromise(
-      fs.createReadStream(redcedarPoiGeojsonPath),
-      parse(),
-      through.obj(async (poi, enc, next) => {
-        if (pointInPolygon(poi, watershed.feature)) {
-          toConsider = true
-          next(new Error('early-exit'))
-        }
-        else {
-          next()
-        }
-      })
-    ) 
-  }
-  catch (error) {
-    // swallow error, we wanted to early exit
-  }
-  return toConsider
+  return intersects
 }
 
 const onPolygon = ({ filterFeature, watershedIndex }) => async ({ result }) => {
@@ -189,7 +190,7 @@ const shpReader = (shpSpec) => {
   return { open, read }
 }
 
-const { watershedIndex } = await WatershedIndex()
+const { watershedIndex } = await WatershedIndex(watershedSpecs)
 
 for (const shpSpec of shpSpecs) {
   const reader = shpReader(shpSpec)

@@ -90,7 +90,12 @@ export const SpatialDB = (dbSpec) => {
       const { id } = await db.get(putKey(putCount))
       return await db.get(idKey(id))
     }
-
+    db[`${label}Iterator`] = (putCount) => {
+      return db.iterator({
+        gt: idKey(null),
+        lt: idKey(undefined),
+      })
+    }
     db[`${label}CreateIndex`] = async () => {
       const iteratorOptions = {
         gt: putKey(null),
@@ -145,6 +150,7 @@ export const SpatialDB = (dbSpec) => {
 
   const put = ({ featureType }) => async ({ feature }) => {
     putCount += 1
+    if (putCount % 10000 === 0) debug({ putCount })
     for (const params of dbSpec.analysisParams) {
       const { name, filterFeature } = params.analysisSpec
       if (!filterFeature(feature)) continue

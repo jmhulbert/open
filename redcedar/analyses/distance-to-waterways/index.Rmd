@@ -48,7 +48,9 @@ Given the large file size of the hydrography shapefiles they are omitted from th
 ls -R hydrography | grep .shp
 ```
 
-Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order to create the database of hydrography features including a spatial index. This will produce affordances for querying nearest neighbors, as well as the ability to access any one feature based on the nearest neighbor query. This database is saved to a `hydrography-db` directory. This can take some time as there are >1 million water course features. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed. Water body polygon features are converted to line features so that they can be queried alongside water course line features.
+Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order to create the database of hydrography features including a spatial indicies. This will produce affordances for querying nearest neighbors, as well as the ability to access any one feature based on the nearest neighbor query. This database is saved to a `hydrography-db` directory. This can take some time as there are >1 million hydrography features. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed. Water body polygon features are converted to line features so that they can be queried alongside water course line features.
+
+Only hydrography features that intersect watershed's that also intersect a redcedar obervation are included in the summary and in the following analysis.
 
 **Water Courses Summary**
 <div id="water-courses-periodicity-count"></div>

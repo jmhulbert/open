@@ -290,44 +290,12 @@ const nconnLayers = ({ key }) => {
   ]
 }
 
-// TODO replace this with common args?
-// - check to see if this worked
 const analysisSpecs = nconnParams.map((params) => {
   return {
     key: params.analysisSpecName,
     source: geojsonSource({ data: params.reportingFileName }),
   }
 })
-// const analysisSpecs = [
-//   {
-//     key: 'period-all',
-//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-all-nconn-epsg-4326.geojson' }),
-//   },
-//   {
-//     key: 'period-min-eph',
-//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-min-eph-nconn-epsg-4326.geojson' }),
-//   },
-//   {
-//     key: 'period-min-int',
-//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-min-int-nconn-epsg-4326.geojson' }),
-//   },
-//   {
-//     key: 'period-per',
-//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-per-nconn-epsg-4326.geojson' }),
-//   },
-//   {
-//     key: 'period-unk',
-//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-unk-nconn-epsg-4326.geojson' }),
-//   },
-//   {
-//     key: 'period-eph',
-//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-eph-nconn-epsg-4326.geojson' }),
-//   },
-//   {
-//     key: 'period-int',
-//     source: geojsonSource({ data: 'redcedar-poi-nearest-period-int-nconn-epsg-4326.geojson' }),
-//   },
-// ]
 
 const nconnSourceSpecs = analysisSpecs.map(spec => {
   spec.layers = nconnLayers(spec)
