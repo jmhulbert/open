@@ -17,10 +17,10 @@
     "dev:js": "run-p copy:* && NODE_ENV=development watchify index.js -o public/bundle.js",
     "dev:serve": "serve public",
     "dev": "run-p dev:*",
-    "build:style": "run-p mkdir:* && postcss -o dist/main.css main.css",
+    "build:style": "postcss -o dist/main.css main.css",
     "build:parent": "esbuild ../common.js --outfile=./common.js --bundle --platform=node --target=node10.4",
     "build:js": "run-p copy:* && NODE_ENV=production browserify index.js > dist/bundle.js",
-    "build": "run-p build:*",
+    "build": "run-s build:*",
     "start": "npm run dev"
   },
   "author": "",

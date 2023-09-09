@@ -257,7 +257,7 @@ if (process.env.NODE_ENV === 'development') {
   host = '.'
 }
 else if (process.env.NODE_ENV === 'production') {
-  host = 'https://rubonics-pmtiles.s3.amazonaws.com/wa-dnr'
+  host = 'https://rubonics-pmtiles.s3.amazonaws.com/nhd-wa'
 }
 
 const geojsonSource = (spec) => {

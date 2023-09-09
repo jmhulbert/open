@@ -78,7 +78,7 @@ for (const type in resultTypes) {
   }
 }
 
-const lineWriter = GeojsonWriter({ filePath: 'summarize-hydrography-lines.geojson' })
+const lineWriter = GeojsonWriter({ filePath: 'summarized-hydrography-lines.geojson' })
 for await (const [key, { feature }] of db.getIteratorLine()) {
   lineWriter.write(feature)
   for (const type in resultTypes) {
@@ -94,7 +94,7 @@ for await (const [key, { feature }] of db.getIteratorLine()) {
 }
 lineWriter.write(null)
 
-const polygonWriter = GeojsonWriter({ filePath: 'summarize-hydrography-polygon.geojson' })
+const polygonWriter = GeojsonWriter({ filePath: 'summarized-hydrography-polygon.geojson' })
 for await (const [key, { feature }] of db.getIteratorPolygon()) {
   polygonWriter.write(feature)
   const resultType = resultTypes.waterBodies
@@ -109,7 +109,7 @@ for await (const [key, { feature }] of db.getIteratorPolygon()) {
 }
 polygonWriter.write(null)
 
-const watershedWriter = GeojsonWriter({ filePath: 'summarize-hydrography-watersheds.geojson' })
+const watershedWriter = GeojsonWriter({ filePath: 'summarized-hydrography-watersheds.geojson' })
 for await (const [key, { feature }] of db.watershedIterator()) {
   watershedWriter.write(feature)
 }
