@@ -626,6 +626,9 @@ video {
 .clear-none {
   clear: none;
 }
+.m-1 {
+  margin: 0.25rem;
+}
 .ml-2 {
   margin-left: 0.5rem;
 }
@@ -664,6 +667,9 @@ video {
   display: block;
   -webkit-box-orient: horizontal;
   -webkit-line-clamp: none;
+}
+.\!block {
+  display: block !important;
 }
 .block {
   display: block;

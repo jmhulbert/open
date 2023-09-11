@@ -2,3 +2,4 @@ node_modules
 *pmtiles
 *mbtiles
 geojson/*
+mbview*

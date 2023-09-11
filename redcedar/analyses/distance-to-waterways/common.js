@@ -1,9 +1,26 @@
 import path from 'node:path'
 import {pipe} from 'mississippi'
+import Debug from 'debug'
+import {
+  lineFCodeToPeriod,
+  areaFCodeToPeriod,
+  fcodeToPeriod,
+} from './fcode-period-map.js'
+
+export { fcodeToPeriod }
 
 import common from './common.json' assert { type: 'json' };
 
+const debug = Debug('common')
+
 export const hydrographyDir = 'hydrography'
+
+export const FEATURE_TYPE = {
+  LINE: 'line',
+  POLYGON: 'polygon',
+}
+
+export const featureTypes = Object.keys(FEATURE_TYPE).map(key => FEATURE_TYPE[key])
 
 export const periodicityValues = new Set([...["Unknown", "Ephemeral", "Intermittent", "Perennial"]])
 
@@ -19,7 +36,7 @@ export const analysisSpecs = common.analysisSpecs.map(spec => {
 })
 
 export const projSpec = {
-  analysis: 'EPSG:3857',
+  analysis: 'EPSG:4269',
   nearest: 'EPSG:4326',
   reporting: 'EPSG:4326',
 }
@@ -28,6 +45,13 @@ export const projSpec = {
 export const RESULT_TYPES = {
   NCONN: 'nconn',
   NPOINT: 'npoint',
+}
+
+const featureTypeForFeature = (f) => {
+  let featureType
+  if (isNaN(f.properties?.['SHAPE_Area'])) featureType = FEATURE_TYPE.LINE
+  else featureType = FEATURE_TYPE.POLYGON
+  return featureType
 }
 
 export const nearestSpec = {
@@ -43,21 +67,28 @@ export const nearestSpec = {
       const id = nconn.properties['opoint-id']
       return id.slice(3)
     },
-    // this is the id based on the nearest feature, weather thats
-    // a water body (WB_ID) or a water course (WC)
+    // this is the id based on the nearest feature
     nfeatId: (f) => {
-      if (f.properties?.WB_ID) return `WB_ID:${f.properties.WB_ID}`
-      if (f.properties?.WC_ID) return `WC_ID:${f.properties.WC_ID}`
+      const featureType = featureTypeForFeature(f)
+      return `${featureType}:${f.properties['permanent_']}`
+    },
+    nfeatIdParts: (f) => {
+      const featureType = featureTypeForFeature(f)
+      return [featureType, f.properties?.['permanent_']]
+    },
+    nfeatIdPartsFromString: (nfeatId) => {
+      const [featureType, permanentId] = nfeatId.split(':')
+      return [featureType, permanentId]
     },
   }
 }
 
-const stringifyArgs = [
+export const stringifyArgs = [
   `{
     "crs": {
       "type": "name",
       "properties": {
-        "name": "urn:ogc:def:crs:EPSG::3857"
+        "name": "${ projSpec.analysis }"
       }
     },
     "type": "FeatureCollection",
@@ -67,13 +98,43 @@ const stringifyArgs = [
   ']}'
 ]
 
+export const linePeriodForFeature = ({ feature }) => {
+  const fcode = feature.properties?.fcode
+  const period = lineFCodeToPeriod[fcode]
+  return period
+}
+
+export const hasLinePeriodToConsider = ({ feature }) => {
+  return typeof linePeriodForFeature({ feature }) === 'string'
+}
+
+export const areaPeriodForFeature = ({ feature }) => {
+  const fcode = feature.properties?.fcode
+  const period = areaFCodeToPeriod[fcode]
+  return period
+}
+
+export const hasAreaPeriodToConsider = ({ feature }) => {
+  return typeof areaPeriodForFeature({ feature }) === 'string'
+}
+
+export const periodForFeature = ({ feature }) => {
+  const fcode = feature.properties?.fcode
+  const period = fcodeToPeriod[fcode]
+  return period
+}
+
+export const hasPeriodToConsider = ({ feature }) => {
+  return typeof periodForFeature({ feature }) === 'string'
+}
+
 nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {
   const baseResultFileName = `${nearestSpec.baseFileName}-${spec.name}`
   return {
     analysisSpec: {
       ...spec,
       filterFeature: (feature) => {
-        const period = feature.properties?.WC_PERIO_1 || feature.properties?.WB_PERIO_1
+        const period = periodForFeature({ feature })
         return spec.include.has(period)
       },
     },
@@ -88,21 +149,39 @@ nearestSpec.analysisParams = nearestSpec.analysisSpecs.map((spec) => {
         type: RESULT_TYPES.NCONN,
         valueFn: (row) => row.nconn,
         fileName: `${baseResultFileName}-nconn.geojson`,
+        analysisSpecName: spec.name,
+        reportingFileName: `${baseResultFileName}-nconn-epsg-4326.geojson`,
         stringifyArgs,
       }
     ],
     csvFields: [
       {
         key: `${spec.name}-dist`,
-        valueFn: ({ nconn }) => nconn.properties.dist
+        valueFn: async ({ nconn }) => nconn.properties.dist
       },
       {
         key: `${spec.name}-nfeat-id`,
-        valueFn: ({ nconn }) => nconn.properties['nfeat-id']
+        valueFn: async ({ nconn }) => nconn.properties['nfeat-id']
+      },
+      {
+        key: `${spec.name}-nfeat-period`,
+        valueFn: async ({ spatialDB, nconn }) => {
+          const nfeatId = nconn.properties['nfeat-id']
+          const { feature } = await spatialDB.getNFeatIdFeature({ nfeatId })
+          const period = periodForFeature({ feature })
+          return period
+        },
       },
     ],
   }
 })
+
+const {analysisParams} = nearestSpec
+const resultSpecs = analysisParams.reduce((acc, curr) => {
+  return acc.concat(curr.resultSpecs)
+}, [])
+
+export const nconnParams = resultSpecs.filter(s => s.type === RESULT_TYPES.NCONN)
 
 export const pipePromise = (...args) => {
   return new Promise((resolve, reject) => {

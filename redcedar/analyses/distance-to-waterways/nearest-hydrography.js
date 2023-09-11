@@ -2,8 +2,8 @@
  * Prerequisites for running this file include running:
  *
  * `$ node fetch-hydrography.js`
- * `$ node create-hydrography-db.js`
  * `$ node redcedar-poi.js`
+ * `$ node create-hydrography-db.js`
  *
  * Using the hydrography spatial index, and the redcedar observation
  * POI, determine the distance to the closest hydrography feature. There
@@ -75,7 +75,7 @@ import proj from 'proj4'
 const db = SpatialDB(dbSpec)
 
 const debug = Debug('nearest')
-const knearest = 10
+const knearest = 5
 const {analysisParams, idSpec} = nearestSpec
 
 async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
@@ -88,6 +88,7 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
   let lineIndex
   let polygonIndex
   let filterFeature = () => true
+  let poiCount = 0
 
   const setParams = async (params) => {
     filterFeature = params.filterFeature
@@ -95,10 +96,12 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
     const indicies = await db.getSpatialIndicies({ analysisName })
     lineIndex = indicies.lineIndex
     polygonIndex = indicies.polygonIndex
+    poiCount = 0
   }
 
   async function findIds ({ index, x, y, featureType, cknearest, offset=0, ids=[] }) {
     const _ids = index.neighbors(x, y, cknearest).slice(offset)
+    if (_ids.length === 0) return { ids }
     for (const id of _ids) {
       const { feature } = await db.getAnalysisFeature({ analysisName, featureType, spatialIndex: id })
       if (!filterFeature(feature)) {
@@ -118,7 +121,7 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
       index,
       x,
       y,
-      get,
+      featureType,
       cknearest,
       offset,
       ids,
@@ -153,6 +156,8 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
   }
 
   const poiStream = () => through.obj(async (poi, enc, next) => {
+    poiCount += 1
+    debug({ poiCount })
     const {isInPolygon, polygon} = await inPolygon(poi)
     if (isInPolygon) {
       const nfeat = polygon
@@ -204,6 +209,7 @@ async function Analysis ({ db, idSpec, projSpec, knearest=1 }) {
       const cnpoint = nearestPointOnLine(lineCoords, pointCoords, nearestOptions)
       cnpoint.properties.dist = kilometersToMeters(cnpoint.properties.dist)
       if (cnpoint.properties.dist < npoint.properties.dist) {
+        debug('new-nearest')
         // return to projSpec.analysis
         cnpoint.geometry.coordinates = proj(projSpec.nearest, projSpec.analysis, cnpoint.geometry.coordinates)
         npoint = { ...cnpoint }

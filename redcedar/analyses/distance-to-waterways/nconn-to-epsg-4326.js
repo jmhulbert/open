@@ -7,19 +7,12 @@
 
 import fs from 'node:fs'
 import ProjectGeojson from 'project-geojson'
-import {nearestSpec, RESULT_TYPES, projSpec, pipePromise} from './common.js'
-
-const {analysisParams} = nearestSpec
-const resultSpecs = analysisParams.reduce((acc, curr) => {
-  return acc.concat(curr.resultSpecs)
-}, [])
-
-const nconnParams = resultSpecs.filter(s => s.type === RESULT_TYPES.NCONN)
+import {nconnParams, projSpec, pipePromise} from './common.js'
 
 for (const params of nconnParams) {
   await pipePromise(
     fs.createReadStream(params.fileName),
     ProjectGeojson(projSpec.analysis, projSpec.reporting),
-    fs.createWriteStream(params.fileName.replace('nconn', 'nconn-epsg-4326'))
+    fs.createWriteStream(params.reportingFileName)
   )
 }

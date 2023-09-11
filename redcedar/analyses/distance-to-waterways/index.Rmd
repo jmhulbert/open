@@ -1,5 +1,5 @@
 ---
-title: "Distance to Waterways - WA DNR hydrography"
+title: "Distance to Waterways - WA NHD hydrography"
 author: 'Contributors: [Rubén Rodríguez](http://rubenrodriguez.me), Joey Hulbert'
 output: html_document
 ---
@@ -20,15 +20,21 @@ library(knitr)
 
 # Approach
 
-This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA DNR watersheds](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::watershed-administrative-units-forest-practices-regulation/about) and calculate the distance to the WA DNR hydrography using both [water courses](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-watercourses-forest-practices-regulation/about) ([metadata](https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WCHYDRO.pdf)) and [water bodies](https://data-wadnr.opendata.arcgis.com/datasets/wadnr::dnr-hydrography-water-bodies-forest-practices-regulation/about) ([metadata](https://fortress.wa.gov/dnr/adminsa/GisData/metadata/ROPA_WBHYDRO.pdf)).
+Previously this analysis was completed against [WA DNR hydrography](../distance-to-waterways--wa-dnr/), but we found that the number of streams that were of `Unknown` period to didn't assist in proving or disproving this hypothesis. The same analysis is carried out using WA NDH data below.
 
-Water courses and water bodies data carry periodicity metadata stored under the  WC_PERIOD_LABEL_NM & WB_PERIOD_LABEL_NM attributes. Values include `Unknown`, `Ephemeral`, `Intermittent`, `Perennial`. The distance to hydrography features analysis is carried out for subsequently more strict criteria, starting with including hydrography features with any periodicity value, all the way down to seeking distance to only `Perennial` hydrography features. The water bodies periodicity metadata also has a `Dry land` value, which is filtered out of the analysis.
+This analysis will take as input the redcedar observations from iNaturalist, reduce the set of observations to those that intersect [WA NHD watersheds](https://www.usgs.gov/national-hydrography/watershed-boundary-dataset) and calculate the distance to the WA NHD hydrography using both [NHD line and area features](https://www.usgs.gov/national-hydrography/national-hydrography-dataset). Metadata for these are captured in the [Feature Classes](https://www.usgs.gov/ngp-standards-and-specifications/national-hydrography-dataset-nhd-data-dictionary-feature-classes) and [Feature Domain](https://www.usgs.gov/ngp-standards-and-specifications/national-hydrography-dataset-nhd-data-dictionary-feature-domains) documents.
+
+Water courses and water bodies data carry periodicity metadata stored under the `fcode` attribute. Values include `Unknown`, `Ephemeral`, `Intermittent`, `Perennial`. These are encoded across values described in the [`fcode-period-map`](./fcode-period-map.js). The distance to hydrography features analysis is carried out for subsequently more strict criteria, starting with including hydrography features with any periodicity value, all the way down to seeking distance to only `Perennial` hydrography features.
+
+```{r comment=''}
+cat(readLines('fcode-period-map.js'), sep = '\n')
+```
 
 The result will be series of geo files that represents where on hydrography features is the closest point, carrying the metadata as to which redcedar observation is responsible for the point, and which hydrography feature the point sits on. This is all stitched together in a final CSV, [`redcedar-poi-nearest-by-period.csv`](./redcedar-poi-nearest-by-period.csv).
 
 # Data Wrangling
 
-I (rubén) found that I was not able to do this analysis in R, since the streams shapefile referenced above is ~1gb. For that reason, the analysis is carried out in node.js.
+I (rubén) found that I was not able to do this analysis in R, since the hydrography shapefiles accumualte to >5GB of data. For that reason, the analysis is carried out in node.js using streaming interfaces.
 
 To setup node.js, install [nvm](https://github.com/nvm-sh/nvm).
 
@@ -41,16 +47,18 @@ Run `npm install` to get the dependencies.
 Given the large file size of the hydrography shapefiles they are omitted from this repository, but can be downloaded by running [`node fetch-hydrography.js`](./fetch-hydrography.js). This is saved to a `hydrography` directory.
 
 ```{bash comment=''}
-ls hydrography
+ls -R hydrography | grep .shp
 ```
 
-Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order to create the database of hydrography features including a spatial index. This will produce affordances for querying nearest neighbors, as well as the ability to access any one feature based on the nearest neighbor query. This database is saved to a `hydrography-db` directory. This can take some time as there are 1,314,690 water course features. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed. Water body polygon features are converted to line features so that they can be queried alongside water course line features.
+Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order to create the database of hydrography features including a spatial indicies. This will produce affordances for querying nearest neighbors, as well as the ability to access any one feature based on the nearest neighbor query. This database is saved to a `hydrography-db` directory. This can take some time as there are >1 million hydrography features. Run the command prefixed with `DEBUG=*` to log out progress of every 10,000th item being processed. Water body polygon features are converted to line features so that they can be queried alongside water course line features.
+
+Only hydrography features that intersect watershed's that also intersect a redcedar obervation are included in the summary and in the following analysis.
 
 **Water Courses Summary**
 <div id="water-courses-periodicity-count"></div>
 <div id="water-courses-periodicity-length"></div>
 
-**Water Body Summary**
+**Water Bodies Summary**
 <div id="water-bodies-periodicity-count"></div>
 <div id="water-bodies-periodicity-length"></div>
 <div id="water-bodies-periodicity-area"></div>
@@ -78,7 +86,7 @@ Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order 
   const hydrographyBlue = '#00ABFF'
   const commaSeperated = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
   const countLabel = (row) => `${row.periodicity} - ${commaSeperated(row.count)} features`
-  const lengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} (m)`
+  const lengthLabel = (row) => `${row.periodicity} - ${commaSeperated(Math.round(row.length))} km`
 
   // --- courses ---
 
@@ -105,7 +113,7 @@ Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order 
 
   const lengthPlot = ({ rows }) => {
     return Plot.plot({
-      x: { label: 'Length (m)' },
+      x: { label: 'Length (km)' },
       y: {
         label: 'Periodicity',
         domain: rows.map(lengthLabel),
@@ -154,7 +162,7 @@ Then run [`node create-hydrography-db.js`](./create-hydrography-db.js) in order 
 
 </script>
 
-Then run [`node redcedar-poi.js`](./redcedar-poi.js) in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the WA DNR watershed boundaries. This file is saved as [redcedar-poi.geojson](./redcedar-poi.geojson). WA DNR data is downloaded with the projection EPSG:3857, so the redcedar POI data is reprojected into the same coordinate system.
+Then run [`node redcedar-poi.js`](./redcedar-poi.js) in order to create a geojson point feature collection of the observation data, filtering out observations without valid [longitude, latitude] attributes, and that reside outside of the watershed boundaries. This file is saved as [redcedar-poi.geojson](./redcedar-poi.geojson). Hydrography data is downloaded with the projection EPSG:4269, so the redcedar POI data is reprojected into the same coordinate system.
 
 **Counts for each Tree Symptom value**
 
@@ -194,7 +202,7 @@ ls *nconn-epsg-4326.geojson
 
 ### Results
 
-The following charts summarize the data produced. First is a bar chart that shows the total number of observations for each Tree Canopy Symptom value. Following is a series of boxplots that shows the distribution of distance to hydrography feature values across each of the Tree Symptom values for each analysis.
+The following charts summarize the data produced. Each subanalysis has a box plot to show the distribution of distance to waterways by tree symptom classification. Followed by a bar chart to count the number of tree observations associated with each hydrography classification. If there are significant statistical outliers in the box plot, another one is produced with outliers removed and a count of tree observations for each hydrography classification.
 
 **Distribution of distance to hydrography**
 
@@ -202,7 +210,7 @@ The following charts summarize the data produced. First is a bar chart that show
 
 A supplementary map can be found in this same directory (`map.qgz`). It carries all data used for this analysis.
 
-[`redcedar-poi-nearest-by-period.csv`](./redcedar-poi-nearest-by-period.csv) is also available in this directory. This is a merger of the all the `npoint` and `nconn` geojson files created for each subanalysis, but merged into a single file for reporting. The distance to hydrography features is stored in `{analysis-spec-name}-dist`. This was produced by running [`node nearest-hydrography-csv.js`](./nearest-hydrography-csv.js).
+[`redcedar-poi-nearest-by-period.csv`](./redcedar-poi-nearest-by-period.csv) is also available in this directory. This is a merger of the all the `npoint` and `nconn` geojson files created for each subanalysis, but merged into a single file for reporting. The distance to hydrography features is stored in `{analysis-spec-name}-dist`, and the period value of that feature is stored under `{analysis-spec-name}-nfeat-period`. This was produced by running [`node nearest-hydrography-csv.js`](./nearest-hydrography-csv.js).
 
 Below is a split pane interface to look at the tabular results of the [`redcedar-poi-nearest-by-period.csv`](./redcedar-poi-nearest-by-period.csv) alongside a map of the redcedar observations and their nearest connection (`nconn`) to hydrography features. Clicking a feature on the map will highlight the associated tabular row, and vice versa.
 
@@ -280,6 +288,42 @@ knitr::include_url("./web-explorer/dist/index.html")
     })
   }
 
+  const hydrographyBlue = '#00ABFF'
+
+  function countPlot ({ yField, rows }) {
+    const x = {}
+    const y = new Set()
+    rows.forEach((row) => {
+      const value = row[yField]
+      y.add(value)
+      if (!(typeof x[value]?.count === 'number')) x[value] = { count: 0 }
+      x[value].count += 1
+    })
+    const plotRows = Object.keys(x).map((y) => {
+      const { count } = x[y]
+      return {
+        y: `${ y } - ${ count } trees`,
+        count,
+      }
+    })
+    return Plot.plot({
+      x: { label: 'Nearest Tree Count' },
+      y: {
+        label: 'Periodicity',
+        domain: plotRows.map(r => r.y),
+      },
+      marginLeft: 20,
+      marks: [
+        Plot.barX(plotRows, {
+          x: 'count',
+          y: 'y',
+          fill: hydrographyBlue
+        }),
+        Plot.axisY({ textAnchor: "start", fill: "black", dx: 14, tickSize: 0 }),
+      ],
+    })
+  }
+
   const symptoms = [
     {
       symptom: 'Healthy',
@@ -337,17 +381,18 @@ knitr::include_url("./web-explorer/dist/index.html")
       return 0
     })
 
+  const treeSymptomLabel = (row) => `${row.symptom} - ${row.observations} observations`
   const treeSymptomCount = Plot.plot({
     x: { label: 'Observations' },
     y: {
       label: 'Tree Canopy Symptom',
-      domain: observations.map(o => o.symptom),
+      domain: observations.map(treeSymptomLabel),
     },
     marginLeft: 20,
     marks: [
       Plot.barX(observations, {
         x: "observations",
-        y: "symptom",
+        y: (row) => treeSymptomLabel(row),
         fill: (d) => symptoms[d.symptomIndex].color,
       }),
       Plot.axisY({textAnchor: "start", fill: "black", dx: 14, tickSize: 0}),
@@ -358,18 +403,54 @@ knitr::include_url("./web-explorer/dist/index.html")
 
   const analysisSpecPlotsEl = document.querySelector('#analysis-spec-plots')
   for (const spec of common.analysisSpecs) {
+    const sectionEl = document.createElement('section')
+    sectionEl.style = `margin: 20px 0;`
     const heading = document.createElement('p')
     const description = document.createElement('p')
     heading.innerHTML = `<strong>subanalysis: ${spec.name}</strong>`
-    description.innerText = `Includes hydrography features with the following period (\`WB_PERIOD_LABEL_NM\` or \`WC_PERIOD_LABEL_NM\`) values: ${spec.include.join(', ')}.`
-    analysisSpecPlotsEl.append(heading)
-    analysisSpecPlotsEl.append(description)
+    description.innerText = `Includes hydrography features with the following period (\`fcode\` hydrography category) values: ${spec.include.join(', ')}.`
+    sectionEl.append(heading)
+    sectionEl.append(description)
     const x = `${spec.name}-dist`
     rows.forEach((row) => {
       row[x] = parseFloat(row[x])
     })
     const box = boxPlot({ x, rows, symptoms, observations })
-    analysisSpecPlotsEl.append(box)
+    sectionEl.append(box)
+    const yField = `${spec.name}-nfeat-period`
+    const count = countPlot({ yField, rows })
+    sectionEl.append(count)
+
+    // calc quantiles to remove outliers
+    // https://www.scribbr.com/statistics/outliers/
+    rows.sort((a, b) => {
+      if (a[x] < b[x]) return -1
+      if (a[x] > b[x]) return 1
+      return 0
+    })
+    const medianIndex = Math.floor(rows.length / 2)
+    const q1MedianIndex = Math.floor((medianIndex - 1) / 2)
+    const q3MedianIndex = Math.floor(((medianIndex - 1)  / 2 + medianIndex))
+    const q1Median = rows[q1MedianIndex][x]
+    const q3Median = rows[q3MedianIndex][x]
+    const iqr = q3Median - q1Median
+    const fenceMultiplier = 5
+    const upperFence = q3Median + (fenceMultiplier * iqr)
+    const lowerFence = q1Median - (fenceMultiplier * iqr)
+
+    const filteredRows = rows.filter(r => r[x] <= upperFence)
+
+    if (filteredRows.length < rows.length) {
+      const outlierDescription = document.createElement('p')
+      outlierDescription.innerText = `Below are the same graphs with statlistical outliers (${fenceMultiplier}x interquantile range) removed. We are left with ${filteredRows.length} connections instead of ${rows.length}.`
+      sectionEl.append(outlierDescription)
+      const outlierBox = boxPlot({ x, rows: filteredRows, symptoms, observations })
+      sectionEl.append(outlierBox)
+      const outlierCount = countPlot({ yField, rows: filteredRows })
+      sectionEl.append(outlierCount)
+    }
+
+    analysisSpecPlotsEl.append(sectionEl)
   }
 </script>
 
