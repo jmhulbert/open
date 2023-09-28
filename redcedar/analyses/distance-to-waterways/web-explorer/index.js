@@ -115,10 +115,10 @@ const store = (state, emitter) => {
         ;(async () => {
           let startRowNumber = undefined
           let endRowNumber = undefined
-          for await (const { row, index } of state.components.tabular.taDecoder.getRowsByIdWithPage({ id, pageCount: state.components.tabular.pageCount })) {
-            if (startRowNumber === undefined) startRowNumber = index
+          for await (const { row, rowNumber } of state.components.tabular.taDecoder.getRowsByIdWithPage({ id, pageCount: state.components.tabular.pageCount })) {
+            if (startRowNumber === undefined) startRowNumber = rowNumber
             asyncState.data.push(row)
-            endRowNumber = index
+            endRowNumber = rowNumber
           }
           asyncState.activePositions = { startRowNumber, endRowNumber }
           
@@ -211,7 +211,7 @@ const store = (state, emitter) => {
     if (id && latitude && longitude) {
       state.map?.flyTo({ center: [longitude, latitude], zoom: 14 });
     }
-    state.map?.setPoiSelected({ id })
+    state.map?.setPoiSelected({ id: String(id) })
     emitter.emit('render')
   })
 

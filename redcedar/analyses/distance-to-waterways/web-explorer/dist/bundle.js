@@ -1759,11 +1759,12 @@ var decode4 = ({ buffer, offset = 0 }) => {
 // src/header-row.mjs
 var import_b4a3 = __toESM(require_browser(), 1);
 var decode5 = ({ buffer, offset = 0 }) => {
+  const uncompressedBuffer = gunzipSync(buffer);
   const headerRow = [];
-  while (offset < buffer.length - 1) {
-    const field = import_protocol_buffers_encodings.default.string.decode(buffer, offset);
+  while (offset < uncompressedBuffer.length - 1) {
+    const field = import_protocol_buffers_encodings.default.string.decode(uncompressedBuffer, offset);
     offset += import_protocol_buffers_encodings.default.string.decode.bytes;
-    const encoder2 = import_protocol_buffers_encodings.default.string.decode(buffer, offset);
+    const encoder2 = import_protocol_buffers_encodings.default.string.decode(uncompressedBuffer, offset);
     offset += import_protocol_buffers_encodings.default.string.decode.bytes;
     headerRow.push({
       field,
@@ -1776,9 +1777,10 @@ var decode5 = ({ buffer, offset = 0 }) => {
 // src/categories.mjs
 var import_b4a4 = __toESM(require_browser(), 1);
 var decode6 = ({ buffer, offset = 0 }) => {
+  const uncompressedBuffer = gunzipSync(buffer);
   const categories2 = [];
-  while (offset < buffer.length - 1) {
-    const category = import_protocol_buffers_encodings.default.string.decode(buffer, offset);
+  while (offset < uncompressedBuffer.length - 1) {
+    const category = import_protocol_buffers_encodings.default.string.decode(uncompressedBuffer, offset);
     offset += import_protocol_buffers_encodings.default.string.decode.bytes;
     categories2.push(category);
   }
@@ -1980,7 +1982,7 @@ var decode7 = ({ readRange: readRange2 }) => (_0) => __async(void 0, [_0], funct
         const compressedBufferSlice = compressedBuffer.slice(offsetStart, offsetEnd);
         const buffer = gunzipSync(compressedBufferSlice);
         const { row } = rowDecoder({ buffer });
-        yield { row, index: startRowNumber + i };
+        yield { row, rowNumber: startRowNumber + i };
         offsetStart = offsetEnd;
       }
     });
@@ -14908,10 +14910,10 @@ const store = (state, emitter) => {
         ;(async () => {
           let startRowNumber = undefined
           let endRowNumber = undefined
-          for await (const { row, index } of state.components.tabular.taDecoder.getRowsByIdWithPage({ id, pageCount: state.components.tabular.pageCount })) {
-            if (startRowNumber === undefined) startRowNumber = index
+          for await (const { row, rowNumber } of state.components.tabular.taDecoder.getRowsByIdWithPage({ id, pageCount: state.components.tabular.pageCount })) {
+            if (startRowNumber === undefined) startRowNumber = rowNumber
             asyncState.data.push(row)
-            endRowNumber = index
+            endRowNumber = rowNumber
           }
           asyncState.activePositions = { startRowNumber, endRowNumber }
           
