@@ -50,12 +50,10 @@ function SplitPane ({ left, right, state, emit }) {
           'border-solid': true,
         })}">
         <div class="${classnames({
-          'h-full': isHorizontal,
-          'w-full': isHorizontal && local.left.open && !local.right.open,
+          'h-full': isHorizontal || (isVertical && local.left.open && !local.right.open),
+          'w-full': (isHorizontal && local.left.open && !local.right.open) || isVertical,
           'w-1/2': isHorizontal && local.left.open && local.right.open,
           'w-0': isHorizontal && !local.left.open && local.right.open,
-          'w-full': isVertical,
-          'h-full': isVertical && local.left.open && !local.right.open,
           'h-1/2': isVertical && local.left.open && local.right.open,
           'h-0': isVertical && !local.left.open && local.right.open,
           'overflow-scroll': true,
@@ -67,12 +65,10 @@ function SplitPane ({ left, right, state, emit }) {
           ${left}
         </div>
         <div class="${classnames({
-          'h-full': isHorizontal,
-          'w-full': isHorizontal && !local.left.open && local.right.open,
+          'h-full': isHorizontal || (isVertical && !local.left.open && local.right.open),
+          'w-full': (isHorizontal && !local.left.open && local.right.open) || isVertical,
           'w-1/2': isHorizontal && local.left.open && local.right.open,
           'w-0': isHorizontal && local.left.open && !local.right.open,
-          'w-full': isVertical,
-          'h-full': isVertical && !local.left.open && local.right.open,
           'h-1/2': isVertical && local.left.open && local.right.open,
           'h-0': isVertical && local.left.open && !local.right.open,
           'overflow-scroll': true,
