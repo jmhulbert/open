@@ -27,9 +27,12 @@ const store = (state, emitter) => {
     tabular: {
       name: 'poi-table',
       url: 'redcedar-poi-nearest-by-period.csv',
+      archiveFilePath: 'redcedar-poi-nearest-by-period.ta',
       data: [],
       pageCount: 100,
-      db: null
+      db: null,
+      loadMoreDirty: undefined,
+      loading: false,
     },
     mapUi: {
       loading: true,
@@ -93,30 +96,32 @@ const store = (state, emitter) => {
     })
 
     map.on('click', 'poi-fill', (e) => {
-      let id = e.features[0]?.properties?.id
+      let id = +e.features[0]?.properties?.id
       if (id === state.components.tabular.selected) {
         id = state.components.tabular.selected = null
         emitter.emit('render')
       }
-      else if (state.components?.tabular?.db) {
+      else if (state.components?.tabular?.taDecoder) {
+        state.components.tabular.loading = true
+        emitter.emit('render')
         const asyncState = {
           selected: id,
           doNotScrollIntoView: false,
           data: [],
           loadMoreDirty: false,
-          activePositions: []
+          activePositions: {},
+          loading: false,
         }
         ;(async () => {
-          const { position=0 } = await state.components.tabular?.db?.getPosition({ id })
-          const page = position / state.components.tabular.pageCount
-          let firstPage = Math.floor(page)
-          let lastPage = Math.ceil(page)
-          if (firstPage === lastPage) lastPage += 1
-          asyncState.activePositions[0] = firstPage * state.components.tabular.pageCount
-          asyncState.activePositions[1] = lastPage * state.components.tabular.pageCount
-          for await (const [key, {row}] of state.components.tabular.db.getRows(asyncState)) {
+          let startRowNumber = undefined
+          let endRowNumber = undefined
+          for await (const { row, index } of state.components.tabular.taDecoder.getRowsByIdWithPage({ id, pageCount: state.components.tabular.pageCount })) {
+            if (startRowNumber === undefined) startRowNumber = index
             asyncState.data.push(row)
+            endRowNumber = index
           }
+          asyncState.activePositions = { startRowNumber, endRowNumber }
+          
           state.components.tabular = {
             ...state.components.tabular,
             ...asyncState,
@@ -124,7 +129,7 @@ const store = (state, emitter) => {
           emitter.emit('render')
         })()
       }
-      state.map.setPoiSelected({ id })
+      state.map.setPoiSelected({ id: String(id) })
     })
 
     emitter.emit('render')
@@ -148,15 +153,56 @@ const store = (state, emitter) => {
     if (item) item.onSelect()
     emitter.emit('render')
   })
-  
-  emitter.on('tabular:data:loaded', ({ db, data }) => {
-    state.components.tabular.data = data
-    state.components.tabular.db = db
-    state.components.tabular.rowCount = db.rowCount()
-    emitter.emit('render')
+
+  emitter.on('tabular:header:loaded', async ({ taDecoder, rowCount }) => {
+    state.components.tabular.taDecoder = taDecoder
+    const startRowNumber = 0
+    const endRowNumber = state.components.tabular.pageCount - 1
+    emitter.emit('tabular:rows:load', { taDecoder, rowCount, loadMoreDirty: 'initial', startRowNumber, endRowNumber })
   })
 
-  emitter.on('tabular:data:selected', ({ id, latitude, longitude }) => {
+  emitter.on('tabular:rows:load', ({ taDecoder, rowCount, loadMoreDirty, startRowNumber, endRowNumber }) => {
+    state.components.tabular.loading = true
+    emitter.emit('render')
+
+    const asyncState = {
+      activePositions: { startRowNumber, endRowNumber },
+      data: [],
+      loadMoreDirty,
+      loading: false,
+    }
+    ;(async () => {
+      for await (const { row } of taDecoder.getRowsBySequence(asyncState.activePositions)) {
+        asyncState.data.push(row)
+      }
+      state.components.tabular = {
+        ...state.components.tabular,
+        ...asyncState,
+      }
+      emitter.emit('render')
+    })()
+  })
+
+  emitter.on('tabular:rows:load:above', ({ taDecoder, rowCount, activePositions }) => {
+    let startRowNumber = activePositions.startRowNumber - state.components.tabular.pageCount
+    let endRowNumber = activePositions.endRowNumber - state.components.tabular.pageCount
+    if (startRowNumber < 0) {
+      startRowNumber = 0
+      endRowNumber = state.components.tabular.pageCount - 1
+    }
+    emitter.emit('tabular:rows:load', { taDecoder, rowCount, loadMoreDirty: 'above', startRowNumber, endRowNumber })
+  })
+  emitter.on('tabular:rows:load:below', ({ taDecoder, rowCount, activePositions }) => {
+    let startRowNumber = activePositions.startRowNumber + state.components.tabular.pageCount
+    let endRowNumber = activePositions.endRowNumber + state.components.tabular.pageCount
+    if (endRowNumber > rowCount) {
+      startRowNumber = rowCount - state.components.tabular.pageCount - 1
+      endRowNumber = rowCount
+    }
+    emitter.emit('tabular:rows:load', { taDecoder, rowCount, loadMoreDirty: 'below', startRowNumber, endRowNumber })
+  })
+
+  emitter.on('tabular:row:selected', ({ id, latitude, longitude }) => {
     state.components.tabular.selected = id
     state.components.tabular.doNotScrollIntoView = state.components.splitPane.left.open === true
       ? true
@@ -168,59 +214,6 @@ const store = (state, emitter) => {
     state.map?.setPoiSelected({ id })
     emitter.emit('render')
   })
-
-  const tabularDataLoad = ({ name, activePositionsTransform }) => ({ db, activePositions }) => {
-    const asyncState = {
-      activePositions: activePositionsTransform({ activePositions }),
-      data: [],
-      loadMoreDirty: name,
-    }
-    ;(async () => {
-      for await (const [key, {row}] of db.getRows(asyncState)) {
-        asyncState.data.push(row)
-      }
-      state.components.tabular = {
-        ...state.components.tabular,
-        ...asyncState
-      }
-      emitter.emit('render')
-    })()
-  }
-
-  const tabularDataLoadBelow = tabularDataLoad({
-    name: 'below',
-    activePositionsTransform: ({ activePositions }) => {
-      let first = activePositions[0] + state.components.tabular.pageCount
-      let last = activePositions[1] + state.components.tabular.pageCount
-      if (last > state.components.tabular.rowCount) {
-        first = state.components.tabular.rowCount - state.components.tabular.pageCount - 1
-        last = state.components.tabular.rowCount
-      }
-      return [
-        first,
-        last,
-      ]
-    },
-  })
-
-  const tabularDataLoadAbove = tabularDataLoad({
-    name: 'above',
-    activePositionsTransform: ({ activePositions }) => {
-      let first = activePositions[0] - state.components.tabular.pageCount
-      let last = activePositions[1] - state.components.tabular.pageCount
-      if (first < 0) {
-        frist = 0
-        last = state.components.tabular.pageCount - 1
-      }
-      return [
-        first,
-        last,
-      ]
-    },
-  })
-
-  emitter.on('tabular:data:load:above', tabularDataLoadAbove)
-  emitter.on('tabular:data:load:below', tabularDataLoadBelow)
 
   emitter.on('split-pane:toggle:left', () => {
     state.components.splitPane.left.open = !state.components.splitPane.left.open

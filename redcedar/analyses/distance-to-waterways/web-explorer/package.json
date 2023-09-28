@@ -1,5 +1,5 @@
 {
-  "name": "web-map",
+  "name": "web-explorer",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -11,6 +11,9 @@
     "copy:csv:dist": "cp ../*.csv ./dist/",
     "copy:csv:public": "cp ../*.csv ./public/",
     "copy:csv": "run-p copy:csv:*",
+    "copy:tabular-archive:dist": "cp ../*.ta ./dist/",
+    "copy:tabular-archive:public": "cp ../*.ta ./public/",
+    "copy:tabular-archive": "run-p copy:tabular-archive:*",
     "copy": "run-p copy:*",
     "dev:style": "postcss -w -o public/main.css main.css",
     "dev:parent": "esbuild ../common.js --outfile=./common.js --bundle --platform=node --target=node10.4 --watch",
