@@ -15006,7 +15006,7 @@ const store = (state, emitter) => {
     if (id && latitude && longitude) {
       state.map?.flyTo({ center: [longitude, latitude], zoom: 14 });
     }
-    state.map?.setPoiSelected({ id })
+    state.map?.setPoiSelected({ id: String(id) })
     emitter.emit('render')
   })
 
