@@ -14824,7 +14824,7 @@ const store = (state, emitter) => {
       url: 'redcedar-poi-nearest-by-period.csv',
       archiveFilePath: 'redcedar-poi-nearest-by-period.ta',
       data: [],
-      pageCount: 100,
+      pageCount: 5,
       db: null,
       loadMoreDirty: undefined,
       loading: false,
