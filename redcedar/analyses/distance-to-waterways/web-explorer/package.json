@@ -36,7 +36,6 @@
     "d3-fetch": "^3.0.1",
     "esmify": "^2.1.1",
     "maplibre-gl": "^3.2.2",
-    "papaparse": "^5.4.1",
     "pmtiles": "^2.10.0",
     "postcss": "^8.4.27",
     "tabular-archive": "^1.0.0",

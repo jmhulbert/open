@@ -1,62 +1,8 @@
 const html = require('choo/html')
 const Component = require('choo/component')
 const classnames = require('classnames')
-const {parse} = require('papaparse')
-// const {Level} = require('level')
-// const bytewise = require('bytewise')
 const Loading = require('./loading.js')
 const {decodeFetch: TADecoder} = require('tabular-archive')
-
-// async function Db ({ name }) {
-//   function constructor () {
-//     return new Level(name, {
-//       keyEncoding: bytewise,
-//       valueEncoding: 'json',
-//     })
-//   }
-//   const db = constructor()
-//   await db.close()
-//   await Level.destroy(name)
-//   await db.open()
-
-//   let positionIncrement = -1
-
-//   const idFn = ({ row }) => {
-//     return row.find(s => s.key === 'id')?.value
-//   }
-
-//   const keyIdFn = ({ id }) => {
-//     return ['row', 'id', id]
-//   }
-
-//   const keyPositionFn = ({ position }) => {
-//     return ['row', 'position', position]
-//   }
-
-//   db.putRow = async ({ row }) => {
-//     positionIncrement += 1
-//     const pos = { position: positionIncrement }
-//     const id = idFn({ row })
-//     await db.put(keyIdFn({ id }), pos)
-//     await db.put(keyPositionFn(pos), { row })
-//     return pos
-//   }
-
-//   db.getPosition = async ({ id }) => {
-//     return await db.get(keyIdFn({ id }))
-//   }
-
-//   db.getRows = ({ activePositions }) => {
-//     return db.iterator({
-//       gt: keyPositionFn({ position: activePositions[0] - 1 }),
-//       lt: keyPositionFn({ position: activePositions[1] + 1 }),
-//     })
-//   }
-
-//   db.rowCount = () => positionIncrement
-
-//   return db
-// }
 
 class TabularComponent extends Component {
   constructor (id, state, emit) {
