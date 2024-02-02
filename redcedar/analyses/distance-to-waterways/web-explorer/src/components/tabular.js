@@ -1,61 +1,8 @@
 const html = require('choo/html')
 const Component = require('choo/component')
 const classnames = require('classnames')
-const {parse} = require('papaparse')
-const {Level} = require('level')
-const bytewise = require('bytewise')
 const Loading = require('./loading.js')
-
-async function Db ({ name }) {
-  function constructor () {
-    return new Level(name, {
-      keyEncoding: bytewise,
-      valueEncoding: 'json',
-    })
-  }
-  const db = constructor()
-  await db.close()
-  await Level.destroy(name)
-  await db.open()
-
-  let positionIncrement = -1
-
-  const idFn = ({ row }) => {
-    return row.find(s => s.key === 'id')?.value
-  }
-
-  const keyIdFn = ({ id }) => {
-    return ['row', 'id', id]
-  }
-
-  const keyPositionFn = ({ position }) => {
-    return ['row', 'position', position]
-  }
-
-  db.putRow = async ({ row }) => {
-    positionIncrement += 1
-    const pos = { position: positionIncrement }
-    const id = idFn({ row })
-    await db.put(keyIdFn({ id }), pos)
-    await db.put(keyPositionFn(pos), { row })
-    return pos
-  }
-
-  db.getPosition = async ({ id }) => {
-    return await db.get(keyIdFn({ id }))
-  }
-
-  db.getRows = ({ activePositions }) => {
-    return db.iterator({
-      gt: keyPositionFn({ position: activePositions[0] - 1 }),
-      lt: keyPositionFn({ position: activePositions[1] + 1 }),
-    })
-  }
-
-  db.rowCount = () => positionIncrement
-
-  return db
-}
+const {decodeFetch: TADecoder} = require('tabular-archive')
 
 class TabularComponent extends Component {
   constructor (id, state, emit) {
@@ -63,9 +10,15 @@ class TabularComponent extends Component {
     this.local = {...state.components[id]}
     this.emit = emit
     this.local.selected = null
-    this.local.activePositions = [0, this.local.pageCount - 1]
+    this.local.activePositions = {
+      startRowNumber: undefined,
+      endRowNumber: undefined,
+    }
+    this.local.loading = true
+    this.headerRow = []
+    this.rowCount = undefined
 
-    const analysisKeys = [
+    const analysisFields = [
       'period-all',
       'period-min-eph',
       'period-min-int',
@@ -84,14 +37,14 @@ class TabularComponent extends Component {
         return acc.concat(curr)
       }, [])
 
-    const showKeys = new Set([
+    const showFields = new Set([
       'id',
       'reclassified.tree.canopy.symptoms',
-      ...analysisKeys,
+      ...analysisFields,
     ])
 
-    this.filterKeys = ({ key }) => {
-      return showKeys.has(key)
+    this.filterFields = ({ field }) => {
+      return showFields.has(field)
     }
 
     this.transformValues = ({ key, value }) => {
@@ -104,45 +57,55 @@ class TabularComponent extends Component {
   }
 
   loadAbove () {
-    this.emit('tabular:data:load:above', {
-      db: this.db,
+    this.emit('tabular:rows:load:above', {
+      taDecoder: this.taDecoder,
+      rowCount: this.rowCount,
       activePositions: this.local.activePositions,
     })
   }
 
   loadBelow () {
-    this.emit('tabular:data:load:below', {
-      db: this.db,
+    this.emit('tabular:rows:load:below', {
+      taDecoder: this.taDecoder,
+      rowCount: this.rowCount,
       activePositions: this.local.activePositions,
     })
   }
 
-  load(element) {
-    this.loadData(this.local)
+  load (element) {
+    TADecoder({ archiveFilePath: this.local.archiveFilePath })
+      .then(async (decoder) => {
+        this.taDecoder = decoder
+        this.local.rowCount = decoder.rowCount
+        this.headerRow = decoder.headerRow
+
+        this.emit('tabular:header:loaded', {
+          rowCount: this.local.rowCount,
+          taDecoder: this.taDecoder,
+        })
+      })
   }
 
   createElement () {
-    const headerRow = this.local.data?.[0]?.filter(this.filterKeys) || []
-    const numFields = headerRow.length
-    const tableWidth = numFields * 150
-    const tableWidthPx = `${tableWidth}px`
     return html`
       <div class="relative w-full h-full">
-        ${Loading({ loading: this.local.data.length === 0 })}
+        ${Loading({ loading: this.local.loading })}
         <table class="${classnames({
           'hidden': this.local.data.length === 0,
         })}">
           <thead class="">
-            <tr class="" style="width: ${tableWidthPx};">
-            ${headerRow.map(({ key, value }) => {
-              return html`<th class="sticky top-0 bg-white border-black border-solid border-x-2 border-b-2 px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll">${key}</th>`
+            <tr class="">
+            ${this.headerRow.filter(this.filterFields).map(({ field }) => {
+              return html`<th class="sticky top-0 bg-white border-black border-solid border-x-2 border-b-2 px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll">${field}</th>`
             })}
             </tr>
           </thead>
           <tbody class="">
             <tr class="${classnames({
               'p-3': true,
-              'hidden': this.local.activePositions[0] === 0,
+              'hidden': typeof this.local.activePositions.startRowNumber === 'number'
+                ? this.local.activePositions.startRowNumber === 0
+                : true,
             })}"
               data-is-navigation=true >
                 <td>
@@ -153,11 +116,10 @@ class TabularComponent extends Component {
                 </td>
             </tr>
             ${this.local.data.map((row, index) => {
-              const id = row.find(d => d.key === 'id')?.value || -1
+              const id = row.id || -1
               const selected = this.local.selected === id
               return html`
                 <tr onclick=${() => this.setSelected({ row })}
-                  style="width: ${tableWidthPx};"
                   data-is-row=true
                   class="${classnames({
                     selected,
@@ -169,13 +131,13 @@ class TabularComponent extends Component {
                     'text-white': selected,
                     'hover:bg-black': selected,
                   })}">
-                  ${row.filter(this.filterKeys).map(({key, value}) => {
-                    return html`<td
-                        class="inline-block border-black border-solid border px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll"
-                      >
-                        ${value}
-                      </td>`
-                  })}
+                ${this.headerRow.filter(this.filterFields).map(({ field }) => {
+                  return html`<td
+                    class="border-black border-solid border px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll"
+                  >
+                    ${row[field]}
+                  </td>`
+                })}
                 </tr>
               `
             })}
@@ -197,11 +159,8 @@ class TabularComponent extends Component {
   }
 
   newActivePositions ({ activePositions }) {
-    return Array.isArray(activePositions) &&
-      (
-        this.local.activePositions[0] !== activePositions[0] ||
-        this.local.activePositions[1] !== activePositions[1]
-      )
+    return this.local.activePositions?.startRowNumber !== activePositions?.startRowNumber ||
+        this.local.activePositions?.endRowNumber !== activePositions?.endRowNumber
   }
 
   update ({
@@ -209,8 +168,9 @@ class TabularComponent extends Component {
     data,
     selected,
     activePositions,
+    loadMoreDirty,
+    loading,
     doNotScrollIntoView=false,
-    loadMoreDirty=false,
   }) {
     let update = false
     if (this.local.loadMoreDirty !== loadMoreDirty) {
@@ -236,45 +196,17 @@ class TabularComponent extends Component {
       laodData({ url })
       update = true
     }
+    if (this.local.loading !== loading) {
+      this.local.loading = loading
+      update = true
+    }
     return update
   }
 
-  async loadData ({ url }) {
-    this.db = await Db(this.local)
-    window.db = this.db
-    parse(url, {
-      download: true,
-      complete: async (results) => {
-        const {data} = results
-        const header = data[0]
-        const rows = data.slice(1).map((row) => {
-          return row.map((value, index) => {
-            return{
-              key: header[index],
-              value,
-            }
-          }).map(this.transformValues)
-        })
-        for (const row of rows) {
-          await this.db.putRow({ row })
-        }
-        this.local.rowCount = this.db.rowCount()
-        this.emit('tabular:data:loaded', {
-          data: rows.slice(0, this.local.pageCount),
-          db: this.db,
-        })
-      }
-    })
-  }
-
   setSelected ({ row }) {
-    const rowObj = row.reduce((acc, curr) => {
-      acc[curr.key] = curr.value
-      return acc
-    }, {})
-    let { id } = rowObj
+    let { id } = row
     if (this.local.selected === id) id = null
-    this.emit('tabular:data:selected', { ...rowObj, id })
+    this.emit('tabular:row:selected', { ...row, id })
   }
 
   afterupdate (element) {
@@ -287,7 +219,7 @@ class TabularComponent extends Component {
         continuity = this.element.querySelector('tbody tr:nth-child(1)')
       }
       this.local.loadMoreDirty = false
-      continuity.scrollIntoView()
+      if (continuity) continuity.scrollIntoView()
     }
     const selected = element.querySelector('.selected')
     if (!selected) return

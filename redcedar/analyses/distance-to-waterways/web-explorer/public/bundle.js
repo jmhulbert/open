@@ -12772,7 +12772,7 @@ var pipePromise = (...args) => {
 });
 
 }).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer,arguments[3],arguments[4],arguments[5],arguments[6],require("timers").setImmediate)
-},{"_process":97,"buffer":24,"events":43,"fs":23,"path":95,"stream":117,"supports-color":119,"timers":120,"tty":121,"util":130}],2:[function(require,module,exports){
+},{"_process":62,"buffer":7,"events":17,"fs":6,"path":60,"stream":80,"supports-color":82,"timers":84,"tty":85,"util":89}],2:[function(require,module,exports){
 const choo = require('choo')
 const html = require('choo/html')
 const MapUI = require('./src/components/map/index.js')
@@ -12802,9 +12802,12 @@ const store = (state, emitter) => {
     tabular: {
       name: 'poi-table',
       url: 'redcedar-poi-nearest-by-period.csv',
+      archiveFilePath: 'redcedar-poi-nearest-by-period.ta',
       data: [],
       pageCount: 100,
-      db: null
+      db: null,
+      loadMoreDirty: undefined,
+      loading: false,
     },
     mapUi: {
       loading: true,
@@ -12868,30 +12871,32 @@ const store = (state, emitter) => {
     })
 
     map.on('click', 'poi-fill', (e) => {
-      let id = e.features[0]?.properties?.id
+      let id = +e.features[0]?.properties?.id
       if (id === state.components.tabular.selected) {
         id = state.components.tabular.selected = null
         emitter.emit('render')
       }
-      else if (state.components?.tabular?.db) {
+      else if (state.components?.tabular?.taDecoder) {
+        state.components.tabular.loading = true
+        emitter.emit('render')
         const asyncState = {
           selected: id,
           doNotScrollIntoView: false,
           data: [],
           loadMoreDirty: false,
-          activePositions: []
+          activePositions: {},
+          loading: false,
         }
         ;(async () => {
-          const { position=0 } = await state.components.tabular?.db?.getPosition({ id })
-          const page = position / state.components.tabular.pageCount
-          let firstPage = Math.floor(page)
-          let lastPage = Math.ceil(page)
-          if (firstPage === lastPage) lastPage += 1
-          asyncState.activePositions[0] = firstPage * state.components.tabular.pageCount
-          asyncState.activePositions[1] = lastPage * state.components.tabular.pageCount
-          for await (const [key, {row}] of state.components.tabular.db.getRows(asyncState)) {
+          let startRowNumber = undefined
+          let endRowNumber = undefined
+          for await (const { row, rowNumber } of state.components.tabular.taDecoder.getRowsByIdWithPage({ id, pageCount: state.components.tabular.pageCount })) {
+            if (startRowNumber === undefined) startRowNumber = rowNumber
             asyncState.data.push(row)
+            endRowNumber = rowNumber
           }
+          asyncState.activePositions = { startRowNumber, endRowNumber }
+          
           state.components.tabular = {
             ...state.components.tabular,
             ...asyncState,
@@ -12899,7 +12904,7 @@ const store = (state, emitter) => {
           emitter.emit('render')
         })()
       }
-      state.map.setPoiSelected({ id })
+      state.map.setPoiSelected({ id: String(id) })
     })
 
     emitter.emit('render')
@@ -12923,15 +12928,56 @@ const store = (state, emitter) => {
     if (item) item.onSelect()
     emitter.emit('render')
   })
-  
-  emitter.on('tabular:data:loaded', ({ db, data }) => {
-    state.components.tabular.data = data
-    state.components.tabular.db = db
-    state.components.tabular.rowCount = db.rowCount()
-    emitter.emit('render')
+
+  emitter.on('tabular:header:loaded', async ({ taDecoder, rowCount }) => {
+    state.components.tabular.taDecoder = taDecoder
+    const startRowNumber = 0
+    const endRowNumber = state.components.tabular.pageCount - 1
+    emitter.emit('tabular:rows:load', { taDecoder, rowCount, loadMoreDirty: 'initial', startRowNumber, endRowNumber })
   })
 
-  emitter.on('tabular:data:selected', ({ id, latitude, longitude }) => {
+  emitter.on('tabular:rows:load', ({ taDecoder, rowCount, loadMoreDirty, startRowNumber, endRowNumber }) => {
+    state.components.tabular.loading = true
+    emitter.emit('render')
+
+    const asyncState = {
+      activePositions: { startRowNumber, endRowNumber },
+      data: [],
+      loadMoreDirty,
+      loading: false,
+    }
+    ;(async () => {
+      for await (const { row } of taDecoder.getRowsBySequence(asyncState.activePositions)) {
+        asyncState.data.push(row)
+      }
+      state.components.tabular = {
+        ...state.components.tabular,
+        ...asyncState,
+      }
+      emitter.emit('render')
+    })()
+  })
+
+  emitter.on('tabular:rows:load:above', ({ taDecoder, rowCount, activePositions }) => {
+    let startRowNumber = activePositions.startRowNumber - state.components.tabular.pageCount
+    let endRowNumber = activePositions.endRowNumber - state.components.tabular.pageCount
+    if (startRowNumber < 0) {
+      startRowNumber = 0
+      endRowNumber = state.components.tabular.pageCount - 1
+    }
+    emitter.emit('tabular:rows:load', { taDecoder, rowCount, loadMoreDirty: 'above', startRowNumber, endRowNumber })
+  })
+  emitter.on('tabular:rows:load:below', ({ taDecoder, rowCount, activePositions }) => {
+    let startRowNumber = activePositions.startRowNumber + state.components.tabular.pageCount
+    let endRowNumber = activePositions.endRowNumber + state.components.tabular.pageCount
+    if (endRowNumber > rowCount) {
+      startRowNumber = rowCount - state.components.tabular.pageCount - 1
+      endRowNumber = rowCount
+    }
+    emitter.emit('tabular:rows:load', { taDecoder, rowCount, loadMoreDirty: 'below', startRowNumber, endRowNumber })
+  })
+
+  emitter.on('tabular:row:selected', ({ id, latitude, longitude }) => {
     state.components.tabular.selected = id
     state.components.tabular.doNotScrollIntoView = state.components.splitPane.left.open === true
       ? true
@@ -12940,62 +12986,9 @@ const store = (state, emitter) => {
     if (id && latitude && longitude) {
       state.map?.flyTo({ center: [longitude, latitude], zoom: 14 });
     }
-    state.map?.setPoiSelected({ id })
+    state.map?.setPoiSelected({ id: String(id) })
     emitter.emit('render')
   })
-
-  const tabularDataLoad = ({ name, activePositionsTransform }) => ({ db, activePositions }) => {
-    const asyncState = {
-      activePositions: activePositionsTransform({ activePositions }),
-      data: [],
-      loadMoreDirty: name,
-    }
-    ;(async () => {
-      for await (const [key, {row}] of db.getRows(asyncState)) {
-        asyncState.data.push(row)
-      }
-      state.components.tabular = {
-        ...state.components.tabular,
-        ...asyncState
-      }
-      emitter.emit('render')
-    })()
-  }
-
-  const tabularDataLoadBelow = tabularDataLoad({
-    name: 'below',
-    activePositionsTransform: ({ activePositions }) => {
-      let first = activePositions[0] + state.components.tabular.pageCount
-      let last = activePositions[1] + state.components.tabular.pageCount
-      if (last > state.components.tabular.rowCount) {
-        first = state.components.tabular.rowCount - state.components.tabular.pageCount - 1
-        last = state.components.tabular.rowCount
-      }
-      return [
-        first,
-        last,
-      ]
-    },
-  })
-
-  const tabularDataLoadAbove = tabularDataLoad({
-    name: 'above',
-    activePositionsTransform: ({ activePositions }) => {
-      let first = activePositions[0] - state.components.tabular.pageCount
-      let last = activePositions[1] - state.components.tabular.pageCount
-      if (first < 0) {
-        frist = 0
-        last = state.components.tabular.pageCount - 1
-      }
-      return [
-        first,
-        last,
-      ]
-    },
-  })
-
-  emitter.on('tabular:data:load:above', tabularDataLoadAbove)
-  emitter.on('tabular:data:load:below', tabularDataLoadBelow)
 
   emitter.on('split-pane:toggle:left', () => {
     state.components.splitPane.left.open = !state.components.splitPane.left.open
@@ -13036,2197 +13029,7 @@ app.route(altCurDir, main)
 // start app
 app.mount('#explore')
 
-},{"./src/components/map/index.js":135,"./src/components/split-pane.js":137,"./src/components/tabular.js":138,"choo":39,"choo/html":38}],3:[function(require,module,exports){
-'use strict'
-
-const { fromCallback } = require('catering')
-const ModuleError = require('module-error')
-const { getCallback, getOptions } = require('./lib/common')
-
-const kPromise = Symbol('promise')
-const kStatus = Symbol('status')
-const kOperations = Symbol('operations')
-const kFinishClose = Symbol('finishClose')
-const kCloseCallbacks = Symbol('closeCallbacks')
-
-class AbstractChainedBatch {
-  constructor (db) {
-    if (typeof db !== 'object' || db === null) {
-      const hint = db === null ? 'null' : typeof db
-      throw new TypeError(`The first argument must be an abstract-level database, received ${hint}`)
-    }
-
-    this[kOperations] = []
-    this[kCloseCallbacks] = []
-    this[kStatus] = 'open'
-    this[kFinishClose] = this[kFinishClose].bind(this)
-
-    this.db = db
-    this.db.attachResource(this)
-    this.nextTick = db.nextTick
-  }
-
-  get length () {
-    return this[kOperations].length
-  }
-
-  put (key, value, options) {
-    if (this[kStatus] !== 'open') {
-      throw new ModuleError('Batch is not open: cannot call put() after write() or close()', {
-        code: 'LEVEL_BATCH_NOT_OPEN'
-      })
-    }
-
-    const err = this.db._checkKey(key) || this.db._checkValue(value)
-    if (err) throw err
-
-    const db = options && options.sublevel != null ? options.sublevel : this.db
-    const original = options
-    const keyEncoding = db.keyEncoding(options && options.keyEncoding)
-    const valueEncoding = db.valueEncoding(options && options.valueEncoding)
-    const keyFormat = keyEncoding.format
-
-    // Forward encoding options
-    options = { ...options, keyEncoding: keyFormat, valueEncoding: valueEncoding.format }
-
-    // Prevent double prefixing
-    if (db !== this.db) {
-      options.sublevel = null
-    }
-
-    const mappedKey = db.prefixKey(keyEncoding.encode(key), keyFormat)
-    const mappedValue = valueEncoding.encode(value)
-
-    this._put(mappedKey, mappedValue, options)
-    this[kOperations].push({ ...original, type: 'put', key, value })
-
-    return this
-  }
-
-  _put (key, value, options) {}
-
-  del (key, options) {
-    if (this[kStatus] !== 'open') {
-      throw new ModuleError('Batch is not open: cannot call del() after write() or close()', {
-        code: 'LEVEL_BATCH_NOT_OPEN'
-      })
-    }
-
-    const err = this.db._checkKey(key)
-    if (err) throw err
-
-    const db = options && options.sublevel != null ? options.sublevel : this.db
-    const original = options
-    const keyEncoding = db.keyEncoding(options && options.keyEncoding)
-    const keyFormat = keyEncoding.format
-
-    // Forward encoding options
-    options = { ...options, keyEncoding: keyFormat }
-
-    // Prevent double prefixing
-    if (db !== this.db) {
-      options.sublevel = null
-    }
-
-    this._del(db.prefixKey(keyEncoding.encode(key), keyFormat), options)
-    this[kOperations].push({ ...original, type: 'del', key })
-
-    return this
-  }
-
-  _del (key, options) {}
-
-  clear () {
-    if (this[kStatus] !== 'open') {
-      throw new ModuleError('Batch is not open: cannot call clear() after write() or close()', {
-        code: 'LEVEL_BATCH_NOT_OPEN'
-      })
-    }
-
-    this._clear()
-    this[kOperations] = []
-
-    return this
-  }
-
-  _clear () {}
-
-  write (options, callback) {
-    callback = getCallback(options, callback)
-    callback = fromCallback(callback, kPromise)
-    options = getOptions(options)
-
-    if (this[kStatus] !== 'open') {
-      this.nextTick(callback, new ModuleError('Batch is not open: cannot call write() after write() or close()', {
-        code: 'LEVEL_BATCH_NOT_OPEN'
-      }))
-    } else if (this.length === 0) {
-      this.close(callback)
-    } else {
-      this[kStatus] = 'writing'
-      this._write(options, (err) => {
-        this[kStatus] = 'closing'
-        this[kCloseCallbacks].push(() => callback(err))
-
-        // Emit after setting 'closing' status, because event may trigger a
-        // db close which in turn triggers (idempotently) closing this batch.
-        if (!err) this.db.emit('batch', this[kOperations])
-
-        this._close(this[kFinishClose])
-      })
-    }
-
-    return callback[kPromise]
-  }
-
-  _write (options, callback) {}
-
-  close (callback) {
-    callback = fromCallback(callback, kPromise)
-
-    if (this[kStatus] === 'closing') {
-      this[kCloseCallbacks].push(callback)
-    } else if (this[kStatus] === 'closed') {
-      this.nextTick(callback)
-    } else {
-      this[kCloseCallbacks].push(callback)
-
-      if (this[kStatus] !== 'writing') {
-        this[kStatus] = 'closing'
-        this._close(this[kFinishClose])
-      }
-    }
-
-    return callback[kPromise]
-  }
-
-  _close (callback) {
-    this.nextTick(callback)
-  }
-
-  [kFinishClose] () {
-    this[kStatus] = 'closed'
-    this.db.detachResource(this)
-
-    const callbacks = this[kCloseCallbacks]
-    this[kCloseCallbacks] = []
-
-    for (const cb of callbacks) {
-      cb()
-    }
-  }
-}
-
-exports.AbstractChainedBatch = AbstractChainedBatch
-
-},{"./lib/common":9,"catering":34,"module-error":72}],4:[function(require,module,exports){
-'use strict'
-
-const { fromCallback } = require('catering')
-const ModuleError = require('module-error')
-const { getOptions, getCallback } = require('./lib/common')
-
-const kPromise = Symbol('promise')
-const kCallback = Symbol('callback')
-const kWorking = Symbol('working')
-const kHandleOne = Symbol('handleOne')
-const kHandleMany = Symbol('handleMany')
-const kAutoClose = Symbol('autoClose')
-const kFinishWork = Symbol('finishWork')
-const kReturnMany = Symbol('returnMany')
-const kClosing = Symbol('closing')
-const kHandleClose = Symbol('handleClose')
-const kClosed = Symbol('closed')
-const kCloseCallbacks = Symbol('closeCallbacks')
-const kKeyEncoding = Symbol('keyEncoding')
-const kValueEncoding = Symbol('valueEncoding')
-const kAbortOnClose = Symbol('abortOnClose')
-const kLegacy = Symbol('legacy')
-const kKeys = Symbol('keys')
-const kValues = Symbol('values')
-const kLimit = Symbol('limit')
-const kCount = Symbol('count')
-
-const emptyOptions = Object.freeze({})
-const noop = () => {}
-let warnedEnd = false
-
-// This class is an internal utility for common functionality between AbstractIterator,
-// AbstractKeyIterator and AbstractValueIterator. It's not exported.
-class CommonIterator {
-  constructor (db, options, legacy) {
-    if (typeof db !== 'object' || db === null) {
-      const hint = db === null ? 'null' : typeof db
-      throw new TypeError(`The first argument must be an abstract-level database, received ${hint}`)
-    }
-
-    if (typeof options !== 'object' || options === null) {
-      throw new TypeError('The second argument must be an options object')
-    }
-
-    this[kClosed] = false
-    this[kCloseCallbacks] = []
-    this[kWorking] = false
-    this[kClosing] = false
-    this[kAutoClose] = false
-    this[kCallback] = null
-    this[kHandleOne] = this[kHandleOne].bind(this)
-    this[kHandleMany] = this[kHandleMany].bind(this)
-    this[kHandleClose] = this[kHandleClose].bind(this)
-    this[kKeyEncoding] = options[kKeyEncoding]
-    this[kValueEncoding] = options[kValueEncoding]
-    this[kLegacy] = legacy
-    this[kLimit] = Number.isInteger(options.limit) && options.limit >= 0 ? options.limit : Infinity
-    this[kCount] = 0
-
-    // Undocumented option to abort pending work on close(). Used by the
-    // many-level module as a temporary solution to a blocked close().
-    // TODO (next major): consider making this the default behavior. Native
-    // implementations should have their own logic to safely close iterators.
-    this[kAbortOnClose] = !!options.abortOnClose
-
-    this.db = db
-    this.db.attachResource(this)
-    this.nextTick = db.nextTick
-  }
-
-  get count () {
-    return this[kCount]
-  }
-
-  get limit () {
-    return this[kLimit]
-  }
-
-  next (callback) {
-    let promise
-
-    if (callback === undefined) {
-      promise = new Promise((resolve, reject) => {
-        callback = (err, key, value) => {
-          if (err) reject(err)
-          else if (!this[kLegacy]) resolve(key)
-          else if (key === undefined && value === undefined) resolve()
-          else resolve([key, value])
-        }
-      })
-    } else if (typeof callback !== 'function') {
-      throw new TypeError('Callback must be a function')
-    }
-
-    if (this[kClosing]) {
-      this.nextTick(callback, new ModuleError('Iterator is not open: cannot call next() after close()', {
-        code: 'LEVEL_ITERATOR_NOT_OPEN'
-      }))
-    } else if (this[kWorking]) {
-      this.nextTick(callback, new ModuleError('Iterator is busy: cannot call next() until previous call has completed', {
-        code: 'LEVEL_ITERATOR_BUSY'
-      }))
-    } else {
-      this[kWorking] = true
-      this[kCallback] = callback
-
-      if (this[kCount] >= this[kLimit]) this.nextTick(this[kHandleOne], null)
-      else this._next(this[kHandleOne])
-    }
-
-    return promise
-  }
-
-  _next (callback) {
-    this.nextTick(callback)
-  }
-
-  nextv (size, options, callback) {
-    callback = getCallback(options, callback)
-    callback = fromCallback(callback, kPromise)
-    options = getOptions(options, emptyOptions)
-
-    if (!Number.isInteger(size)) {
-      this.nextTick(callback, new TypeError("The first argument 'size' must be an integer"))
-      return callback[kPromise]
-    }
-
-    if (this[kClosing]) {
-      this.nextTick(callback, new ModuleError('Iterator is not open: cannot call nextv() after close()', {
-        code: 'LEVEL_ITERATOR_NOT_OPEN'
-      }))
-    } else if (this[kWorking]) {
-      this.nextTick(callback, new ModuleError('Iterator is busy: cannot call nextv() until previous call has completed', {
-        code: 'LEVEL_ITERATOR_BUSY'
-      }))
-    } else {
-      if (size < 1) size = 1
-      if (this[kLimit] < Infinity) size = Math.min(size, this[kLimit] - this[kCount])
-
-      this[kWorking] = true
-      this[kCallback] = callback
-
-      if (size <= 0) this.nextTick(this[kHandleMany], null, [])
-      else this._nextv(size, options, this[kHandleMany])
-    }
-
-    return callback[kPromise]
-  }
-
-  _nextv (size, options, callback) {
-    const acc = []
-    const onnext = (err, key, value) => {
-      if (err) {
-        return callback(err)
-      } else if (this[kLegacy] ? key === undefined && value === undefined : key === undefined) {
-        return callback(null, acc)
-      }
-
-      acc.push(this[kLegacy] ? [key, value] : key)
-
-      if (acc.length === size) {
-        callback(null, acc)
-      } else {
-        this._next(onnext)
-      }
-    }
-
-    this._next(onnext)
-  }
-
-  all (options, callback) {
-    callback = getCallback(options, callback)
-    callback = fromCallback(callback, kPromise)
-    options = getOptions(options, emptyOptions)
-
-    if (this[kClosing]) {
-      this.nextTick(callback, new ModuleError('Iterator is not open: cannot call all() after close()', {
-        code: 'LEVEL_ITERATOR_NOT_OPEN'
-      }))
-    } else if (this[kWorking]) {
-      this.nextTick(callback, new ModuleError('Iterator is busy: cannot call all() until previous call has completed', {
-        code: 'LEVEL_ITERATOR_BUSY'
-      }))
-    } else {
-      this[kWorking] = true
-      this[kCallback] = callback
-      this[kAutoClose] = true
-
-      if (this[kCount] >= this[kLimit]) this.nextTick(this[kHandleMany], null, [])
-      else this._all(options, this[kHandleMany])
-    }
-
-    return callback[kPromise]
-  }
-
-  _all (options, callback) {
-    // Must count here because we're directly calling _nextv()
-    let count = this[kCount]
-    const acc = []
-
-    const nextv = () => {
-      // Not configurable, because implementations should optimize _all().
-      const size = this[kLimit] < Infinity ? Math.min(1e3, this[kLimit] - count) : 1e3
-
-      if (size <= 0) {
-        this.nextTick(callback, null, acc)
-      } else {
-        this._nextv(size, emptyOptions, onnextv)
-      }
-    }
-
-    const onnextv = (err, items) => {
-      if (err) {
-        callback(err)
-      } else if (items.length === 0) {
-        callback(null, acc)
-      } else {
-        acc.push.apply(acc, items)
-        count += items.length
-        nextv()
-      }
-    }
-
-    nextv()
-  }
-
-  [kFinishWork] () {
-    const cb = this[kCallback]
-
-    // Callback will be null if work was aborted on close
-    if (this[kAbortOnClose] && cb === null) return noop
-
-    this[kWorking] = false
-    this[kCallback] = null
-
-    if (this[kClosing]) this._close(this[kHandleClose])
-
-    return cb
-  }
-
-  [kReturnMany] (cb, err, items) {
-    if (this[kAutoClose]) {
-      this.close(cb.bind(null, err, items))
-    } else {
-      cb(err, items)
-    }
-  }
-
-  seek (target, options) {
-    options = getOptions(options, emptyOptions)
-
-    if (this[kClosing]) {
-      // Don't throw here, to be kind to implementations that wrap
-      // another db and don't necessarily control when the db is closed
-    } else if (this[kWorking]) {
-      throw new ModuleError('Iterator is busy: cannot call seek() until next() has completed', {
-        code: 'LEVEL_ITERATOR_BUSY'
-      })
-    } else {
-      const keyEncoding = this.db.keyEncoding(options.keyEncoding || this[kKeyEncoding])
-      const keyFormat = keyEncoding.format
-
-      if (options.keyEncoding !== keyFormat) {
-        options = { ...options, keyEncoding: keyFormat }
-      }
-
-      const mapped = this.db.prefixKey(keyEncoding.encode(target), keyFormat)
-      this._seek(mapped, options)
-    }
-  }
-
-  _seek (target, options) {
-    throw new ModuleError('Iterator does not support seek()', {
-      code: 'LEVEL_NOT_SUPPORTED'
-    })
-  }
-
-  close (callback) {
-    callback = fromCallback(callback, kPromise)
-
-    if (this[kClosed]) {
-      this.nextTick(callback)
-    } else if (this[kClosing]) {
-      this[kCloseCallbacks].push(callback)
-    } else {
-      this[kClosing] = true
-      this[kCloseCallbacks].push(callback)
-
-      if (!this[kWorking]) {
-        this._close(this[kHandleClose])
-      } else if (this[kAbortOnClose]) {
-        // Don't wait for work to finish. Subsequently ignore the result.
-        const cb = this[kFinishWork]()
-
-        cb(new ModuleError('Aborted on iterator close()', {
-          code: 'LEVEL_ITERATOR_NOT_OPEN'
-        }))
-      }
-    }
-
-    return callback[kPromise]
-  }
-
-  _close (callback) {
-    this.nextTick(callback)
-  }
-
-  [kHandleClose] () {
-    this[kClosed] = true
-    this.db.detachResource(this)
-
-    const callbacks = this[kCloseCallbacks]
-    this[kCloseCallbacks] = []
-
-    for (const cb of callbacks) {
-      cb()
-    }
-  }
-
-  async * [Symbol.asyncIterator] () {
-    try {
-      let item
-
-      while ((item = (await this.next())) !== undefined) {
-        yield item
-      }
-    } finally {
-      if (!this[kClosed]) await this.close()
-    }
-  }
-}
-
-// For backwards compatibility this class is not (yet) called AbstractEntryIterator.
-class AbstractIterator extends CommonIterator {
-  constructor (db, options) {
-    super(db, options, true)
-    this[kKeys] = options.keys !== false
-    this[kValues] = options.values !== false
-  }
-
-  [kHandleOne] (err, key, value) {
-    const cb = this[kFinishWork]()
-    if (err) return cb(err)
-
-    try {
-      key = this[kKeys] && key !== undefined ? this[kKeyEncoding].decode(key) : undefined
-      value = this[kValues] && value !== undefined ? this[kValueEncoding].decode(value) : undefined
-    } catch (err) {
-      return cb(new IteratorDecodeError('entry', err))
-    }
-
-    if (!(key === undefined && value === undefined)) {
-      this[kCount]++
-    }
-
-    cb(null, key, value)
-  }
-
-  [kHandleMany] (err, entries) {
-    const cb = this[kFinishWork]()
-    if (err) return this[kReturnMany](cb, err)
-
-    try {
-      for (const entry of entries) {
-        const key = entry[0]
-        const value = entry[1]
-
-        entry[0] = this[kKeys] && key !== undefined ? this[kKeyEncoding].decode(key) : undefined
-        entry[1] = this[kValues] && value !== undefined ? this[kValueEncoding].decode(value) : undefined
-      }
-    } catch (err) {
-      return this[kReturnMany](cb, new IteratorDecodeError('entries', err))
-    }
-
-    this[kCount] += entries.length
-    this[kReturnMany](cb, null, entries)
-  }
-
-  end (callback) {
-    if (!warnedEnd && typeof console !== 'undefined') {
-      warnedEnd = true
-      console.warn(new ModuleError(
-        'The iterator.end() method was renamed to close() and end() is an alias that will be removed in a future version',
-        { code: 'LEVEL_LEGACY' }
-      ))
-    }
-
-    return this.close(callback)
-  }
-}
-
-class AbstractKeyIterator extends CommonIterator {
-  constructor (db, options) {
-    super(db, options, false)
-  }
-
-  [kHandleOne] (err, key) {
-    const cb = this[kFinishWork]()
-    if (err) return cb(err)
-
-    try {
-      key = key !== undefined ? this[kKeyEncoding].decode(key) : undefined
-    } catch (err) {
-      return cb(new IteratorDecodeError('key', err))
-    }
-
-    if (key !== undefined) this[kCount]++
-    cb(null, key)
-  }
-
-  [kHandleMany] (err, keys) {
-    const cb = this[kFinishWork]()
-    if (err) return this[kReturnMany](cb, err)
-
-    try {
-      for (let i = 0; i < keys.length; i++) {
-        const key = keys[i]
-        keys[i] = key !== undefined ? this[kKeyEncoding].decode(key) : undefined
-      }
-    } catch (err) {
-      return this[kReturnMany](cb, new IteratorDecodeError('keys', err))
-    }
-
-    this[kCount] += keys.length
-    this[kReturnMany](cb, null, keys)
-  }
-}
-
-class AbstractValueIterator extends CommonIterator {
-  constructor (db, options) {
-    super(db, options, false)
-  }
-
-  [kHandleOne] (err, value) {
-    const cb = this[kFinishWork]()
-    if (err) return cb(err)
-
-    try {
-      value = value !== undefined ? this[kValueEncoding].decode(value) : undefined
-    } catch (err) {
-      return cb(new IteratorDecodeError('value', err))
-    }
-
-    if (value !== undefined) this[kCount]++
-    cb(null, value)
-  }
-
-  [kHandleMany] (err, values) {
-    const cb = this[kFinishWork]()
-    if (err) return this[kReturnMany](cb, err)
-
-    try {
-      for (let i = 0; i < values.length; i++) {
-        const value = values[i]
-        values[i] = value !== undefined ? this[kValueEncoding].decode(value) : undefined
-      }
-    } catch (err) {
-      return this[kReturnMany](cb, new IteratorDecodeError('values', err))
-    }
-
-    this[kCount] += values.length
-    this[kReturnMany](cb, null, values)
-  }
-}
-
-// Internal utility, not typed or exported
-class IteratorDecodeError extends ModuleError {
-  constructor (subject, cause) {
-    super(`Iterator could not decode ${subject}`, {
-      code: 'LEVEL_DECODE_ERROR',
-      cause
-    })
-  }
-}
-
-// To help migrating to abstract-level
-for (const k of ['_ended property', '_nexting property', '_end method']) {
-  Object.defineProperty(AbstractIterator.prototype, k.split(' ')[0], {
-    get () { throw new ModuleError(`The ${k} has been removed`, { code: 'LEVEL_LEGACY' }) },
-    set () { throw new ModuleError(`The ${k} has been removed`, { code: 'LEVEL_LEGACY' }) }
-  })
-}
-
-// Exposed so that AbstractLevel can set these options
-AbstractIterator.keyEncoding = kKeyEncoding
-AbstractIterator.valueEncoding = kValueEncoding
-
-exports.AbstractIterator = AbstractIterator
-exports.AbstractKeyIterator = AbstractKeyIterator
-exports.AbstractValueIterator = AbstractValueIterator
-
-},{"./lib/common":9,"catering":34,"module-error":72}],5:[function(require,module,exports){
-'use strict'
-
-const { supports } = require('level-supports')
-const { Transcoder } = require('level-transcoder')
-const { EventEmitter } = require('events')
-const { fromCallback } = require('catering')
-const ModuleError = require('module-error')
-const { AbstractIterator } = require('./abstract-iterator')
-const { DefaultKeyIterator, DefaultValueIterator } = require('./lib/default-kv-iterator')
-const { DeferredIterator, DeferredKeyIterator, DeferredValueIterator } = require('./lib/deferred-iterator')
-const { DefaultChainedBatch } = require('./lib/default-chained-batch')
-const { getCallback, getOptions } = require('./lib/common')
-const rangeOptions = require('./lib/range-options')
-
-const kPromise = Symbol('promise')
-const kLanded = Symbol('landed')
-const kResources = Symbol('resources')
-const kCloseResources = Symbol('closeResources')
-const kOperations = Symbol('operations')
-const kUndefer = Symbol('undefer')
-const kDeferOpen = Symbol('deferOpen')
-const kOptions = Symbol('options')
-const kStatus = Symbol('status')
-const kDefaultOptions = Symbol('defaultOptions')
-const kTranscoder = Symbol('transcoder')
-const kKeyEncoding = Symbol('keyEncoding')
-const kValueEncoding = Symbol('valueEncoding')
-const noop = () => {}
-
-class AbstractLevel extends EventEmitter {
-  constructor (manifest, options) {
-    super()
-
-    if (typeof manifest !== 'object' || manifest === null) {
-      throw new TypeError("The first argument 'manifest' must be an object")
-    }
-
-    options = getOptions(options)
-    const { keyEncoding, valueEncoding, passive, ...forward } = options
-
-    this[kResources] = new Set()
-    this[kOperations] = []
-    this[kDeferOpen] = true
-    this[kOptions] = forward
-    this[kStatus] = 'opening'
-
-    this.supports = supports(manifest, {
-      status: true,
-      promises: true,
-      clear: true,
-      getMany: true,
-      deferredOpen: true,
-
-      // TODO (next major): add seek
-      snapshots: manifest.snapshots !== false,
-      permanence: manifest.permanence !== false,
-
-      // TODO: remove from level-supports because it's always supported
-      keyIterator: true,
-      valueIterator: true,
-      iteratorNextv: true,
-      iteratorAll: true,
-
-      encodings: manifest.encodings || {},
-      events: Object.assign({}, manifest.events, {
-        opening: true,
-        open: true,
-        closing: true,
-        closed: true,
-        put: true,
-        del: true,
-        batch: true,
-        clear: true
-      })
-    })
-
-    this[kTranscoder] = new Transcoder(formats(this))
-    this[kKeyEncoding] = this[kTranscoder].encoding(keyEncoding || 'utf8')
-    this[kValueEncoding] = this[kTranscoder].encoding(valueEncoding || 'utf8')
-
-    // Add custom and transcoder encodings to manifest
-    for (const encoding of this[kTranscoder].encodings()) {
-      if (!this.supports.encodings[encoding.commonName]) {
-        this.supports.encodings[encoding.commonName] = true
-      }
-    }
-
-    this[kDefaultOptions] = {
-      empty: Object.freeze({}),
-      entry: Object.freeze({
-        keyEncoding: this[kKeyEncoding].commonName,
-        valueEncoding: this[kValueEncoding].commonName
-      }),
-      key: Object.freeze({
-        keyEncoding: this[kKeyEncoding].commonName
-      })
-    }
-
-    // Let subclass finish its constructor
-    this.nextTick(() => {
-      if (this[kDeferOpen]) {
-        this.open({ passive: false }, noop)
-      }
-    })
-  }
-
-  get status () {
-    return this[kStatus]
-  }
-
-  keyEncoding (encoding) {
-    return this[kTranscoder].encoding(encoding != null ? encoding : this[kKeyEncoding])
-  }
-
-  valueEncoding (encoding) {
-    return this[kTranscoder].encoding(encoding != null ? encoding : this[kValueEncoding])
-  }
-
-  open (options, callback) {
-    callback = getCallback(options, callback)
-    callback = fromCallback(callback, kPromise)
-
-    options = { ...this[kOptions], ...getOptions(options) }
-
-    options.createIfMissing = options.createIfMissing !== false
-    options.errorIfExists = !!options.errorIfExists
-
-    const maybeOpened = (err) => {
-      if (this[kStatus] === 'closing' || this[kStatus] === 'opening') {
-        // Wait until pending state changes are done
-        this.once(kLanded, err ? () => maybeOpened(err) : maybeOpened)
-      } else if (this[kStatus] !== 'open') {
-        callback(new ModuleError('Database is not open', {
-          code: 'LEVEL_DATABASE_NOT_OPEN',
-          cause: err
-        }))
-      } else {
-        callback()
-      }
-    }
-
-    if (options.passive) {
-      if (this[kStatus] === 'opening') {
-        this.once(kLanded, maybeOpened)
-      } else {
-        this.nextTick(maybeOpened)
-      }
-    } else if (this[kStatus] === 'closed' || this[kDeferOpen]) {
-      this[kDeferOpen] = false
-      this[kStatus] = 'opening'
-      this.emit('opening')
-
-      this._open(options, (err) => {
-        if (err) {
-          this[kStatus] = 'closed'
-
-          // Resources must be safe to close in any db state
-          this[kCloseResources](() => {
-            this.emit(kLanded)
-            maybeOpened(err)
-          })
-
-          this[kUndefer]()
-          return
-        }
-
-        this[kStatus] = 'open'
-        this[kUndefer]()
-        this.emit(kLanded)
-
-        // Only emit public event if pending state changes are done
-        if (this[kStatus] === 'open') this.emit('open')
-
-        // TODO (next major): remove this alias
-        if (this[kStatus] === 'open') this.emit('ready')
-
-        maybeOpened()
-      })
-    } else if (this[kStatus] === 'open') {
-      this.nextTick(maybeOpened)
-    } else {
-      this.once(kLanded, () => this.open(options, callback))
-    }
-
-    return callback[kPromise]
-  }
-
-  _open (options, callback) {
-    this.nextTick(callback)
-  }
-
-  close (callback) {
-    callback = fromCallback(callback, kPromise)
-
-    const maybeClosed = (err) => {
-      if (this[kStatus] === 'opening' || this[kStatus] === 'closing') {
-        // Wait until pending state changes are done
-        this.once(kLanded, err ? maybeClosed(err) : maybeClosed)
-      } else if (this[kStatus] !== 'closed') {
-        callback(new ModuleError('Database is not closed', {
-          code: 'LEVEL_DATABASE_NOT_CLOSED',
-          cause: err
-        }))
-      } else {
-        callback()
-      }
-    }
-
-    if (this[kStatus] === 'open') {
-      this[kStatus] = 'closing'
-      this.emit('closing')
-
-      const cancel = (err) => {
-        this[kStatus] = 'open'
-        this[kUndefer]()
-        this.emit(kLanded)
-        maybeClosed(err)
-      }
-
-      this[kCloseResources](() => {
-        this._close((err) => {
-          if (err) return cancel(err)
-
-          this[kStatus] = 'closed'
-          this[kUndefer]()
-          this.emit(kLanded)
-
-          // Only emit public event if pending state changes are done
-          if (this[kStatus] === 'closed') this.emit('closed')
-
-          maybeClosed()
-        })
-      })
-    } else if (this[kStatus] === 'closed') {
-      this.nextTick(maybeClosed)
-    } else {
-      this.once(kLanded, () => this.close(callback))
-    }
-
-    return callback[kPromise]
-  }
-
-  [kCloseResources] (callback) {
-    if (this[kResources].size === 0) {
-      return this.nextTick(callback)
-    }
-
-    let pending = this[kResources].size
-    let sync = true
-
-    const next = () => {
-      if (--pending === 0) {
-        // We don't have tests for generic resources, so dezalgo
-        if (sync) this.nextTick(callback)
-        else callback()
-      }
-    }
-
-    // In parallel so that all resources know they are closed
-    for (const resource of this[kResources]) {
-      resource.close(next)
-    }
-
-    sync = false
-    this[kResources].clear()
-  }
-
-  _close (callback) {
-    this.nextTick(callback)
-  }
-
-  get (key, options, callback) {
-    callback = getCallback(options, callback)
-    callback = fromCallback(callback, kPromise)
-    options = getOptions(options, this[kDefaultOptions].entry)
-
-    if (this[kStatus] === 'opening') {
-      this.defer(() => this.get(key, options, callback))
-      return callback[kPromise]
-    }
-
-    if (maybeError(this, callback)) {
-      return callback[kPromise]
-    }
-
-    const err = this._checkKey(key)
-
-    if (err) {
-      this.nextTick(callback, err)
-      return callback[kPromise]
-    }
-
-    const keyEncoding = this.keyEncoding(options.keyEncoding)
-    const valueEncoding = this.valueEncoding(options.valueEncoding)
-    const keyFormat = keyEncoding.format
-    const valueFormat = valueEncoding.format
-
-    // Forward encoding options to the underlying store
-    if (options.keyEncoding !== keyFormat || options.valueEncoding !== valueFormat) {
-      // Avoid spread operator because of https://bugs.chromium.org/p/chromium/issues/detail?id=1204540
-      options = Object.assign({}, options, { keyEncoding: keyFormat, valueEncoding: valueFormat })
-    }
-
-    this._get(this.prefixKey(keyEncoding.encode(key), keyFormat), options, (err, value) => {
-      if (err) {
-        // Normalize not found error for backwards compatibility with abstract-leveldown and level(up)
-        if (err.code === 'LEVEL_NOT_FOUND' || err.notFound || /NotFound/i.test(err)) {
-          if (!err.code) err.code = 'LEVEL_NOT_FOUND' // Preferred way going forward
-          if (!err.notFound) err.notFound = true // Same as level-errors
-          if (!err.status) err.status = 404 // Same as level-errors
-        }
-
-        return callback(err)
-      }
-
-      try {
-        value = valueEncoding.decode(value)
-      } catch (err) {
-        return callback(new ModuleError('Could not decode value', {
-          code: 'LEVEL_DECODE_ERROR',
-          cause: err
-        }))
-      }
-
-      callback(null, value)
-    })
-
-    return callback[kPromise]
-  }
-
-  _get (key, options, callback) {
-    this.nextTick(callback, new Error('NotFound'))
-  }
-
-  getMany (keys, options, callback) {
-    callback = getCallback(options, callback)
-    callback = fromCallback(callback, kPromise)
-    options = getOptions(options, this[kDefaultOptions].entry)
-
-    if (this[kStatus] === 'opening') {
-      this.defer(() => this.getMany(keys, options, callback))
-      return callback[kPromise]
-    }
-
-    if (maybeError(this, callback)) {
-      return callback[kPromise]
-    }
-
-    if (!Array.isArray(keys)) {
-      this.nextTick(callback, new TypeError("The first argument 'keys' must be an array"))
-      return callback[kPromise]
-    }
-
-    if (keys.length === 0) {
-      this.nextTick(callback, null, [])
-      return callback[kPromise]
-    }
-
-    const keyEncoding = this.keyEncoding(options.keyEncoding)
-    const valueEncoding = this.valueEncoding(options.valueEncoding)
-    const keyFormat = keyEncoding.format
-    const valueFormat = valueEncoding.format
-
-    // Forward encoding options
-    if (options.keyEncoding !== keyFormat || options.valueEncoding !== valueFormat) {
-      options = Object.assign({}, options, { keyEncoding: keyFormat, valueEncoding: valueFormat })
-    }
-
-    const mappedKeys = new Array(keys.length)
-
-    for (let i = 0; i < keys.length; i++) {
-      const key = keys[i]
-      const err = this._checkKey(key)
-
-      if (err) {
-        this.nextTick(callback, err)
-        return callback[kPromise]
-      }
-
-      mappedKeys[i] = this.prefixKey(keyEncoding.encode(key), keyFormat)
-    }
-
-    this._getMany(mappedKeys, options, (err, values) => {
-      if (err) return callback(err)
-
-      try {
-        for (let i = 0; i < values.length; i++) {
-          if (values[i] !== undefined) {
-            values[i] = valueEncoding.decode(values[i])
-          }
-        }
-      } catch (err) {
-        return callback(new ModuleError(`Could not decode one or more of ${values.length} value(s)`, {
-          code: 'LEVEL_DECODE_ERROR',
-          cause: err
-        }))
-      }
-
-      callback(null, values)
-    })
-
-    return callback[kPromise]
-  }
-
-  _getMany (keys, options, callback) {
-    this.nextTick(callback, null, new Array(keys.length).fill(undefined))
-  }
-
-  put (key, value, options, callback) {
-    callback = getCallback(options, callback)
-    callback = fromCallback(callback, kPromise)
-    options = getOptions(options, this[kDefaultOptions].entry)
-
-    if (this[kStatus] === 'opening') {
-      this.defer(() => this.put(key, value, options, callback))
-      return callback[kPromise]
-    }
-
-    if (maybeError(this, callback)) {
-      return callback[kPromise]
-    }
-
-    const err = this._checkKey(key) || this._checkValue(value)
-
-    if (err) {
-      this.nextTick(callback, err)
-      return callback[kPromise]
-    }
-
-    const keyEncoding = this.keyEncoding(options.keyEncoding)
-    const valueEncoding = this.valueEncoding(options.valueEncoding)
-    const keyFormat = keyEncoding.format
-    const valueFormat = valueEncoding.format
-
-    // Forward encoding options
-    if (options.keyEncoding !== keyFormat || options.valueEncoding !== valueFormat) {
-      options = Object.assign({}, options, { keyEncoding: keyFormat, valueEncoding: valueFormat })
-    }
-
-    const mappedKey = this.prefixKey(keyEncoding.encode(key), keyFormat)
-    const mappedValue = valueEncoding.encode(value)
-
-    this._put(mappedKey, mappedValue, options, (err) => {
-      if (err) return callback(err)
-      this.emit('put', key, value)
-      callback()
-    })
-
-    return callback[kPromise]
-  }
-
-  _put (key, value, options, callback) {
-    this.nextTick(callback)
-  }
-
-  del (key, options, callback) {
-    callback = getCallback(options, callback)
-    callback = fromCallback(callback, kPromise)
-    options = getOptions(options, this[kDefaultOptions].key)
-
-    if (this[kStatus] === 'opening') {
-      this.defer(() => this.del(key, options, callback))
-      return callback[kPromise]
-    }
-
-    if (maybeError(this, callback)) {
-      return callback[kPromise]
-    }
-
-    const err = this._checkKey(key)
-
-    if (err) {
-      this.nextTick(callback, err)
-      return callback[kPromise]
-    }
-
-    const keyEncoding = this.keyEncoding(options.keyEncoding)
-    const keyFormat = keyEncoding.format
-
-    // Forward encoding options
-    if (options.keyEncoding !== keyFormat) {
-      options = Object.assign({}, options, { keyEncoding: keyFormat })
-    }
-
-    this._del(this.prefixKey(keyEncoding.encode(key), keyFormat), options, (err) => {
-      if (err) return callback(err)
-      this.emit('del', key)
-      callback()
-    })
-
-    return callback[kPromise]
-  }
-
-  _del (key, options, callback) {
-    this.nextTick(callback)
-  }
-
-  batch (operations, options, callback) {
-    if (!arguments.length) {
-      if (this[kStatus] === 'opening') return new DefaultChainedBatch(this)
-      if (this[kStatus] !== 'open') {
-        throw new ModuleError('Database is not open', {
-          code: 'LEVEL_DATABASE_NOT_OPEN'
-        })
-      }
-      return this._chainedBatch()
-    }
-
-    if (typeof operations === 'function') callback = operations
-    else callback = getCallback(options, callback)
-
-    callback = fromCallback(callback, kPromise)
-    options = getOptions(options, this[kDefaultOptions].empty)
-
-    if (this[kStatus] === 'opening') {
-      this.defer(() => this.batch(operations, options, callback))
-      return callback[kPromise]
-    }
-
-    if (maybeError(this, callback)) {
-      return callback[kPromise]
-    }
-
-    if (!Array.isArray(operations)) {
-      this.nextTick(callback, new TypeError("The first argument 'operations' must be an array"))
-      return callback[kPromise]
-    }
-
-    if (operations.length === 0) {
-      this.nextTick(callback)
-      return callback[kPromise]
-    }
-
-    const mapped = new Array(operations.length)
-    const { keyEncoding: ke, valueEncoding: ve, ...forward } = options
-
-    for (let i = 0; i < operations.length; i++) {
-      if (typeof operations[i] !== 'object' || operations[i] === null) {
-        this.nextTick(callback, new TypeError('A batch operation must be an object'))
-        return callback[kPromise]
-      }
-
-      const op = Object.assign({}, operations[i])
-
-      if (op.type !== 'put' && op.type !== 'del') {
-        this.nextTick(callback, new TypeError("A batch operation must have a type property that is 'put' or 'del'"))
-        return callback[kPromise]
-      }
-
-      const err = this._checkKey(op.key)
-
-      if (err) {
-        this.nextTick(callback, err)
-        return callback[kPromise]
-      }
-
-      const db = op.sublevel != null ? op.sublevel : this
-      const keyEncoding = db.keyEncoding(op.keyEncoding || ke)
-      const keyFormat = keyEncoding.format
-
-      op.key = db.prefixKey(keyEncoding.encode(op.key), keyFormat)
-      op.keyEncoding = keyFormat
-
-      if (op.type === 'put') {
-        const valueErr = this._checkValue(op.value)
-
-        if (valueErr) {
-          this.nextTick(callback, valueErr)
-          return callback[kPromise]
-        }
-
-        const valueEncoding = db.valueEncoding(op.valueEncoding || ve)
-
-        op.value = valueEncoding.encode(op.value)
-        op.valueEncoding = valueEncoding.format
-      }
-
-      // Prevent double prefixing
-      if (db !== this) {
-        op.sublevel = null
-      }
-
-      mapped[i] = op
-    }
-
-    this._batch(mapped, forward, (err) => {
-      if (err) return callback(err)
-      this.emit('batch', operations)
-      callback()
-    })
-
-    return callback[kPromise]
-  }
-
-  _batch (operations, options, callback) {
-    this.nextTick(callback)
-  }
-
-  sublevel (name, options) {
-    return this._sublevel(name, AbstractSublevel.defaults(options))
-  }
-
-  _sublevel (name, options) {
-    return new AbstractSublevel(this, name, options)
-  }
-
-  prefixKey (key, keyFormat) {
-    return key
-  }
-
-  clear (options, callback) {
-    callback = getCallback(options, callback)
-    callback = fromCallback(callback, kPromise)
-    options = getOptions(options, this[kDefaultOptions].empty)
-
-    if (this[kStatus] === 'opening') {
-      this.defer(() => this.clear(options, callback))
-      return callback[kPromise]
-    }
-
-    if (maybeError(this, callback)) {
-      return callback[kPromise]
-    }
-
-    const original = options
-    const keyEncoding = this.keyEncoding(options.keyEncoding)
-
-    options = rangeOptions(options, keyEncoding)
-    options.keyEncoding = keyEncoding.format
-
-    if (options.limit === 0) {
-      this.nextTick(callback)
-    } else {
-      this._clear(options, (err) => {
-        if (err) return callback(err)
-        this.emit('clear', original)
-        callback()
-      })
-    }
-
-    return callback[kPromise]
-  }
-
-  _clear (options, callback) {
-    this.nextTick(callback)
-  }
-
-  iterator (options) {
-    const keyEncoding = this.keyEncoding(options && options.keyEncoding)
-    const valueEncoding = this.valueEncoding(options && options.valueEncoding)
-
-    options = rangeOptions(options, keyEncoding)
-    options.keys = options.keys !== false
-    options.values = options.values !== false
-
-    // We need the original encoding options in AbstractIterator in order to decode data
-    options[AbstractIterator.keyEncoding] = keyEncoding
-    options[AbstractIterator.valueEncoding] = valueEncoding
-
-    // Forward encoding options to private API
-    options.keyEncoding = keyEncoding.format
-    options.valueEncoding = valueEncoding.format
-
-    if (this[kStatus] === 'opening') {
-      return new DeferredIterator(this, options)
-    } else if (this[kStatus] !== 'open') {
-      throw new ModuleError('Database is not open', {
-        code: 'LEVEL_DATABASE_NOT_OPEN'
-      })
-    }
-
-    return this._iterator(options)
-  }
-
-  _iterator (options) {
-    return new AbstractIterator(this, options)
-  }
-
-  keys (options) {
-    // Also include valueEncoding (though unused) because we may fallback to _iterator()
-    const keyEncoding = this.keyEncoding(options && options.keyEncoding)
-    const valueEncoding = this.valueEncoding(options && options.valueEncoding)
-
-    options = rangeOptions(options, keyEncoding)
-
-    // We need the original encoding options in AbstractKeyIterator in order to decode data
-    options[AbstractIterator.keyEncoding] = keyEncoding
-    options[AbstractIterator.valueEncoding] = valueEncoding
-
-    // Forward encoding options to private API
-    options.keyEncoding = keyEncoding.format
-    options.valueEncoding = valueEncoding.format
-
-    if (this[kStatus] === 'opening') {
-      return new DeferredKeyIterator(this, options)
-    } else if (this[kStatus] !== 'open') {
-      throw new ModuleError('Database is not open', {
-        code: 'LEVEL_DATABASE_NOT_OPEN'
-      })
-    }
-
-    return this._keys(options)
-  }
-
-  _keys (options) {
-    return new DefaultKeyIterator(this, options)
-  }
-
-  values (options) {
-    const keyEncoding = this.keyEncoding(options && options.keyEncoding)
-    const valueEncoding = this.valueEncoding(options && options.valueEncoding)
-
-    options = rangeOptions(options, keyEncoding)
-
-    // We need the original encoding options in AbstractValueIterator in order to decode data
-    options[AbstractIterator.keyEncoding] = keyEncoding
-    options[AbstractIterator.valueEncoding] = valueEncoding
-
-    // Forward encoding options to private API
-    options.keyEncoding = keyEncoding.format
-    options.valueEncoding = valueEncoding.format
-
-    if (this[kStatus] === 'opening') {
-      return new DeferredValueIterator(this, options)
-    } else if (this[kStatus] !== 'open') {
-      throw new ModuleError('Database is not open', {
-        code: 'LEVEL_DATABASE_NOT_OPEN'
-      })
-    }
-
-    return this._values(options)
-  }
-
-  _values (options) {
-    return new DefaultValueIterator(this, options)
-  }
-
-  defer (fn) {
-    if (typeof fn !== 'function') {
-      throw new TypeError('The first argument must be a function')
-    }
-
-    this[kOperations].push(fn)
-  }
-
-  [kUndefer] () {
-    if (this[kOperations].length === 0) {
-      return
-    }
-
-    const operations = this[kOperations]
-    this[kOperations] = []
-
-    for (const op of operations) {
-      op()
-    }
-  }
-
-  // TODO: docs and types
-  attachResource (resource) {
-    if (typeof resource !== 'object' || resource === null ||
-      typeof resource.close !== 'function') {
-      throw new TypeError('The first argument must be a resource object')
-    }
-
-    this[kResources].add(resource)
-  }
-
-  // TODO: docs and types
-  detachResource (resource) {
-    this[kResources].delete(resource)
-  }
-
-  _chainedBatch () {
-    return new DefaultChainedBatch(this)
-  }
-
-  _checkKey (key) {
-    if (key === null || key === undefined) {
-      return new ModuleError('Key cannot be null or undefined', {
-        code: 'LEVEL_INVALID_KEY'
-      })
-    }
-  }
-
-  _checkValue (value) {
-    if (value === null || value === undefined) {
-      return new ModuleError('Value cannot be null or undefined', {
-        code: 'LEVEL_INVALID_VALUE'
-      })
-    }
-  }
-}
-
-// Expose browser-compatible nextTick for dependents
-// TODO: after we drop node 10, also use queueMicrotask in node
-AbstractLevel.prototype.nextTick = require('./lib/next-tick')
-
-const { AbstractSublevel } = require('./lib/abstract-sublevel')({ AbstractLevel })
-
-exports.AbstractLevel = AbstractLevel
-exports.AbstractSublevel = AbstractSublevel
-
-const maybeError = function (db, callback) {
-  if (db[kStatus] !== 'open') {
-    db.nextTick(callback, new ModuleError('Database is not open', {
-      code: 'LEVEL_DATABASE_NOT_OPEN'
-    }))
-    return true
-  }
-
-  return false
-}
-
-const formats = function (db) {
-  return Object.keys(db.supports.encodings)
-    .filter(k => !!db.supports.encodings[k])
-}
-
-},{"./abstract-iterator":4,"./lib/abstract-sublevel":8,"./lib/common":9,"./lib/default-chained-batch":10,"./lib/default-kv-iterator":11,"./lib/deferred-iterator":12,"./lib/next-tick":13,"./lib/range-options":14,"catering":34,"events":43,"level-supports":64,"level-transcoder":65,"module-error":72}],6:[function(require,module,exports){
-'use strict'
-
-exports.AbstractLevel = require('./abstract-level').AbstractLevel
-exports.AbstractSublevel = require('./abstract-level').AbstractSublevel
-exports.AbstractIterator = require('./abstract-iterator').AbstractIterator
-exports.AbstractKeyIterator = require('./abstract-iterator').AbstractKeyIterator
-exports.AbstractValueIterator = require('./abstract-iterator').AbstractValueIterator
-exports.AbstractChainedBatch = require('./abstract-chained-batch').AbstractChainedBatch
-
-},{"./abstract-chained-batch":3,"./abstract-iterator":4,"./abstract-level":5}],7:[function(require,module,exports){
-'use strict'
-
-const { AbstractIterator, AbstractKeyIterator, AbstractValueIterator } = require('../abstract-iterator')
-
-const kUnfix = Symbol('unfix')
-const kIterator = Symbol('iterator')
-const kHandleOne = Symbol('handleOne')
-const kHandleMany = Symbol('handleMany')
-const kCallback = Symbol('callback')
-
-// TODO: unfix natively if db supports it
-class AbstractSublevelIterator extends AbstractIterator {
-  constructor (db, options, iterator, unfix) {
-    super(db, options)
-
-    this[kIterator] = iterator
-    this[kUnfix] = unfix
-    this[kHandleOne] = this[kHandleOne].bind(this)
-    this[kHandleMany] = this[kHandleMany].bind(this)
-    this[kCallback] = null
-  }
-
-  [kHandleOne] (err, key, value) {
-    const callback = this[kCallback]
-    if (err) return callback(err)
-    if (key !== undefined) key = this[kUnfix](key)
-    callback(err, key, value)
-  }
-
-  [kHandleMany] (err, entries) {
-    const callback = this[kCallback]
-    if (err) return callback(err)
-
-    for (const entry of entries) {
-      const key = entry[0]
-      if (key !== undefined) entry[0] = this[kUnfix](key)
-    }
-
-    callback(err, entries)
-  }
-}
-
-class AbstractSublevelKeyIterator extends AbstractKeyIterator {
-  constructor (db, options, iterator, unfix) {
-    super(db, options)
-
-    this[kIterator] = iterator
-    this[kUnfix] = unfix
-    this[kHandleOne] = this[kHandleOne].bind(this)
-    this[kHandleMany] = this[kHandleMany].bind(this)
-    this[kCallback] = null
-  }
-
-  [kHandleOne] (err, key) {
-    const callback = this[kCallback]
-    if (err) return callback(err)
-    if (key !== undefined) key = this[kUnfix](key)
-    callback(err, key)
-  }
-
-  [kHandleMany] (err, keys) {
-    const callback = this[kCallback]
-    if (err) return callback(err)
-
-    for (let i = 0; i < keys.length; i++) {
-      const key = keys[i]
-      if (key !== undefined) keys[i] = this[kUnfix](key)
-    }
-
-    callback(err, keys)
-  }
-}
-
-class AbstractSublevelValueIterator extends AbstractValueIterator {
-  constructor (db, options, iterator) {
-    super(db, options)
-    this[kIterator] = iterator
-  }
-}
-
-for (const Iterator of [AbstractSublevelIterator, AbstractSublevelKeyIterator]) {
-  Iterator.prototype._next = function (callback) {
-    this[kCallback] = callback
-    this[kIterator].next(this[kHandleOne])
-  }
-
-  Iterator.prototype._nextv = function (size, options, callback) {
-    this[kCallback] = callback
-    this[kIterator].nextv(size, options, this[kHandleMany])
-  }
-
-  Iterator.prototype._all = function (options, callback) {
-    this[kCallback] = callback
-    this[kIterator].all(options, this[kHandleMany])
-  }
-}
-
-for (const Iterator of [AbstractSublevelValueIterator]) {
-  Iterator.prototype._next = function (callback) {
-    this[kIterator].next(callback)
-  }
-
-  Iterator.prototype._nextv = function (size, options, callback) {
-    this[kIterator].nextv(size, options, callback)
-  }
-
-  Iterator.prototype._all = function (options, callback) {
-    this[kIterator].all(options, callback)
-  }
-}
-
-for (const Iterator of [AbstractSublevelIterator, AbstractSublevelKeyIterator, AbstractSublevelValueIterator]) {
-  Iterator.prototype._seek = function (target, options) {
-    this[kIterator].seek(target, options)
-  }
-
-  Iterator.prototype._close = function (callback) {
-    this[kIterator].close(callback)
-  }
-}
-
-exports.AbstractSublevelIterator = AbstractSublevelIterator
-exports.AbstractSublevelKeyIterator = AbstractSublevelKeyIterator
-exports.AbstractSublevelValueIterator = AbstractSublevelValueIterator
-
-},{"../abstract-iterator":4}],8:[function(require,module,exports){
-'use strict'
-
-const ModuleError = require('module-error')
-const { Buffer } = require('buffer') || {}
-const {
-  AbstractSublevelIterator,
-  AbstractSublevelKeyIterator,
-  AbstractSublevelValueIterator
-} = require('./abstract-sublevel-iterator')
-
-const kPrefix = Symbol('prefix')
-const kUpperBound = Symbol('upperBound')
-const kPrefixRange = Symbol('prefixRange')
-const kParent = Symbol('parent')
-const kUnfix = Symbol('unfix')
-
-const textEncoder = new TextEncoder()
-const defaults = { separator: '!' }
-
-// Wrapped to avoid circular dependency
-module.exports = function ({ AbstractLevel }) {
-  class AbstractSublevel extends AbstractLevel {
-    static defaults (options) {
-      // To help migrating from subleveldown to abstract-level
-      if (typeof options === 'string') {
-        throw new ModuleError('The subleveldown string shorthand for { separator } has been removed', {
-          code: 'LEVEL_LEGACY'
-        })
-      } else if (options && options.open) {
-        throw new ModuleError('The subleveldown open option has been removed', {
-          code: 'LEVEL_LEGACY'
-        })
-      }
-
-      if (options == null) {
-        return defaults
-      } else if (!options.separator) {
-        return { ...options, separator: '!' }
-      } else {
-        return options
-      }
-    }
-
-    // TODO: add autoClose option, which if true, does parent.attachResource(this)
-    constructor (db, name, options) {
-      // Don't forward AbstractSublevel options to AbstractLevel
-      const { separator, manifest, ...forward } = AbstractSublevel.defaults(options)
-      name = trim(name, separator)
-
-      // Reserve one character between separator and name to give us an upper bound
-      const reserved = separator.charCodeAt(0) + 1
-      const parent = db[kParent] || db
-
-      // Keys should sort like ['!a!', '!a!!a!', '!a"', '!aa!', '!b!'].
-      // Use ASCII for consistent length between string, Buffer and Uint8Array
-      if (!textEncoder.encode(name).every(x => x > reserved && x < 127)) {
-        throw new ModuleError(`Prefix must use bytes > ${reserved} < ${127}`, {
-          code: 'LEVEL_INVALID_PREFIX'
-        })
-      }
-
-      super(mergeManifests(parent, manifest), forward)
-
-      const prefix = (db.prefix || '') + separator + name + separator
-      const upperBound = prefix.slice(0, -1) + String.fromCharCode(reserved)
-
-      this[kParent] = parent
-      this[kPrefix] = new MultiFormat(prefix)
-      this[kUpperBound] = new MultiFormat(upperBound)
-      this[kUnfix] = new Unfixer()
-
-      this.nextTick = parent.nextTick
-    }
-
-    prefixKey (key, keyFormat) {
-      if (keyFormat === 'utf8') {
-        return this[kPrefix].utf8 + key
-      } else if (key.byteLength === 0) {
-        // Fast path for empty key (no copy)
-        return this[kPrefix][keyFormat]
-      } else if (keyFormat === 'view') {
-        const view = this[kPrefix].view
-        const result = new Uint8Array(view.byteLength + key.byteLength)
-
-        result.set(view, 0)
-        result.set(key, view.byteLength)
-
-        return result
-      } else {
-        const buffer = this[kPrefix].buffer
-        return Buffer.concat([buffer, key], buffer.byteLength + key.byteLength)
-      }
-    }
-
-    // Not exposed for now.
-    [kPrefixRange] (range, keyFormat) {
-      if (range.gte !== undefined) {
-        range.gte = this.prefixKey(range.gte, keyFormat)
-      } else if (range.gt !== undefined) {
-        range.gt = this.prefixKey(range.gt, keyFormat)
-      } else {
-        range.gte = this[kPrefix][keyFormat]
-      }
-
-      if (range.lte !== undefined) {
-        range.lte = this.prefixKey(range.lte, keyFormat)
-      } else if (range.lt !== undefined) {
-        range.lt = this.prefixKey(range.lt, keyFormat)
-      } else {
-        range.lte = this[kUpperBound][keyFormat]
-      }
-    }
-
-    get prefix () {
-      return this[kPrefix].utf8
-    }
-
-    get db () {
-      return this[kParent]
-    }
-
-    _open (options, callback) {
-      // The parent db must open itself or be (re)opened by the user because
-      // a sublevel should not initiate state changes on the rest of the db.
-      this[kParent].open({ passive: true }, callback)
-    }
-
-    _put (key, value, options, callback) {
-      this[kParent].put(key, value, options, callback)
-    }
-
-    _get (key, options, callback) {
-      this[kParent].get(key, options, callback)
-    }
-
-    _getMany (keys, options, callback) {
-      this[kParent].getMany(keys, options, callback)
-    }
-
-    _del (key, options, callback) {
-      this[kParent].del(key, options, callback)
-    }
-
-    _batch (operations, options, callback) {
-      this[kParent].batch(operations, options, callback)
-    }
-
-    _clear (options, callback) {
-      // TODO (refactor): move to AbstractLevel
-      this[kPrefixRange](options, options.keyEncoding)
-      this[kParent].clear(options, callback)
-    }
-
-    _iterator (options) {
-      // TODO (refactor): move to AbstractLevel
-      this[kPrefixRange](options, options.keyEncoding)
-      const iterator = this[kParent].iterator(options)
-      const unfix = this[kUnfix].get(this[kPrefix].utf8.length, options.keyEncoding)
-      return new AbstractSublevelIterator(this, options, iterator, unfix)
-    }
-
-    _keys (options) {
-      this[kPrefixRange](options, options.keyEncoding)
-      const iterator = this[kParent].keys(options)
-      const unfix = this[kUnfix].get(this[kPrefix].utf8.length, options.keyEncoding)
-      return new AbstractSublevelKeyIterator(this, options, iterator, unfix)
-    }
-
-    _values (options) {
-      this[kPrefixRange](options, options.keyEncoding)
-      const iterator = this[kParent].values(options)
-      return new AbstractSublevelValueIterator(this, options, iterator)
-    }
-  }
-
-  return { AbstractSublevel }
-}
-
-const mergeManifests = function (parent, manifest) {
-  return {
-    // Inherit manifest of parent db
-    ...parent.supports,
-
-    // Disable unsupported features
-    createIfMissing: false,
-    errorIfExists: false,
-
-    // Unset additional events because we're not forwarding them
-    events: {},
-
-    // Unset additional methods (like approximateSize) which we can't support here unless
-    // the AbstractSublevel class is overridden by an implementation of `abstract-level`.
-    additionalMethods: {},
-
-    // Inherit manifest of custom AbstractSublevel subclass. Such a class is not
-    // allowed to override encodings.
-    ...manifest,
-
-    encodings: {
-      utf8: supportsEncoding(parent, 'utf8'),
-      buffer: supportsEncoding(parent, 'buffer'),
-      view: supportsEncoding(parent, 'view')
-    }
-  }
-}
-
-const supportsEncoding = function (parent, encoding) {
-  // Prefer a non-transcoded encoding for optimal performance
-  return parent.supports.encodings[encoding]
-    ? parent.keyEncoding(encoding).name === encoding
-    : false
-}
-
-class MultiFormat {
-  constructor (key) {
-    this.utf8 = key
-    this.view = textEncoder.encode(key)
-    this.buffer = Buffer ? Buffer.from(this.view.buffer, 0, this.view.byteLength) : {}
-  }
-}
-
-class Unfixer {
-  constructor () {
-    this.cache = new Map()
-  }
-
-  get (prefixLength, keyFormat) {
-    let unfix = this.cache.get(keyFormat)
-
-    if (unfix === undefined) {
-      if (keyFormat === 'view') {
-        unfix = function (prefixLength, key) {
-          // Avoid Uint8Array#slice() because it copies
-          return key.subarray(prefixLength)
-        }.bind(null, prefixLength)
-      } else {
-        unfix = function (prefixLength, key) {
-          // Avoid Buffer#subarray() because it's slow
-          return key.slice(prefixLength)
-        }.bind(null, prefixLength)
-      }
-
-      this.cache.set(keyFormat, unfix)
-    }
-
-    return unfix
-  }
-}
-
-const trim = function (str, char) {
-  let start = 0
-  let end = str.length
-
-  while (start < end && str[start] === char) start++
-  while (end > start && str[end - 1] === char) end--
-
-  return str.slice(start, end)
-}
-
-},{"./abstract-sublevel-iterator":7,"buffer":24,"module-error":72}],9:[function(require,module,exports){
-'use strict'
-
-exports.getCallback = function (options, callback) {
-  return typeof options === 'function' ? options : callback
-}
-
-exports.getOptions = function (options, def) {
-  if (typeof options === 'object' && options !== null) {
-    return options
-  }
-
-  if (def !== undefined) {
-    return def
-  }
-
-  return {}
-}
-
-},{}],10:[function(require,module,exports){
-'use strict'
-
-const { AbstractChainedBatch } = require('../abstract-chained-batch')
-const ModuleError = require('module-error')
-const kEncoded = Symbol('encoded')
-
-// Functional default for chained batch, with support of deferred open
-class DefaultChainedBatch extends AbstractChainedBatch {
-  constructor (db) {
-    super(db)
-    this[kEncoded] = []
-  }
-
-  _put (key, value, options) {
-    this[kEncoded].push({ ...options, type: 'put', key, value })
-  }
-
-  _del (key, options) {
-    this[kEncoded].push({ ...options, type: 'del', key })
-  }
-
-  _clear () {
-    this[kEncoded] = []
-  }
-
-  // Assumes this[kEncoded] cannot change after write()
-  _write (options, callback) {
-    if (this.db.status === 'opening') {
-      this.db.defer(() => this._write(options, callback))
-    } else if (this.db.status === 'open') {
-      if (this[kEncoded].length === 0) this.nextTick(callback)
-      else this.db._batch(this[kEncoded], options, callback)
-    } else {
-      this.nextTick(callback, new ModuleError('Batch is not open: cannot call write() after write() or close()', {
-        code: 'LEVEL_BATCH_NOT_OPEN'
-      }))
-    }
-  }
-}
-
-exports.DefaultChainedBatch = DefaultChainedBatch
-
-},{"../abstract-chained-batch":3,"module-error":72}],11:[function(require,module,exports){
-'use strict'
-
-const { AbstractKeyIterator, AbstractValueIterator } = require('../abstract-iterator')
-
-const kIterator = Symbol('iterator')
-const kCallback = Symbol('callback')
-const kHandleOne = Symbol('handleOne')
-const kHandleMany = Symbol('handleMany')
-
-class DefaultKeyIterator extends AbstractKeyIterator {
-  constructor (db, options) {
-    super(db, options)
-
-    this[kIterator] = db.iterator({ ...options, keys: true, values: false })
-    this[kHandleOne] = this[kHandleOne].bind(this)
-    this[kHandleMany] = this[kHandleMany].bind(this)
-  }
-}
-
-class DefaultValueIterator extends AbstractValueIterator {
-  constructor (db, options) {
-    super(db, options)
-
-    this[kIterator] = db.iterator({ ...options, keys: false, values: true })
-    this[kHandleOne] = this[kHandleOne].bind(this)
-    this[kHandleMany] = this[kHandleMany].bind(this)
-  }
-}
-
-for (const Iterator of [DefaultKeyIterator, DefaultValueIterator]) {
-  const keys = Iterator === DefaultKeyIterator
-  const mapEntry = keys ? (entry) => entry[0] : (entry) => entry[1]
-
-  Iterator.prototype._next = function (callback) {
-    this[kCallback] = callback
-    this[kIterator].next(this[kHandleOne])
-  }
-
-  Iterator.prototype[kHandleOne] = function (err, key, value) {
-    const callback = this[kCallback]
-    if (err) callback(err)
-    else callback(null, keys ? key : value)
-  }
-
-  Iterator.prototype._nextv = function (size, options, callback) {
-    this[kCallback] = callback
-    this[kIterator].nextv(size, options, this[kHandleMany])
-  }
-
-  Iterator.prototype._all = function (options, callback) {
-    this[kCallback] = callback
-    this[kIterator].all(options, this[kHandleMany])
-  }
-
-  Iterator.prototype[kHandleMany] = function (err, entries) {
-    const callback = this[kCallback]
-    if (err) callback(err)
-    else callback(null, entries.map(mapEntry))
-  }
-
-  Iterator.prototype._seek = function (target, options) {
-    this[kIterator].seek(target, options)
-  }
-
-  Iterator.prototype._close = function (callback) {
-    this[kIterator].close(callback)
-  }
-}
-
-// Internal utilities, should be typed as AbstractKeyIterator and AbstractValueIterator
-exports.DefaultKeyIterator = DefaultKeyIterator
-exports.DefaultValueIterator = DefaultValueIterator
-
-},{"../abstract-iterator":4}],12:[function(require,module,exports){
-'use strict'
-
-const { AbstractIterator, AbstractKeyIterator, AbstractValueIterator } = require('../abstract-iterator')
-const ModuleError = require('module-error')
-
-const kNut = Symbol('nut')
-const kUndefer = Symbol('undefer')
-const kFactory = Symbol('factory')
-
-class DeferredIterator extends AbstractIterator {
-  constructor (db, options) {
-    super(db, options)
-
-    this[kNut] = null
-    this[kFactory] = () => db.iterator(options)
-
-    this.db.defer(() => this[kUndefer]())
-  }
-}
-
-class DeferredKeyIterator extends AbstractKeyIterator {
-  constructor (db, options) {
-    super(db, options)
-
-    this[kNut] = null
-    this[kFactory] = () => db.keys(options)
-
-    this.db.defer(() => this[kUndefer]())
-  }
-}
-
-class DeferredValueIterator extends AbstractValueIterator {
-  constructor (db, options) {
-    super(db, options)
-
-    this[kNut] = null
-    this[kFactory] = () => db.values(options)
-
-    this.db.defer(() => this[kUndefer]())
-  }
-}
-
-for (const Iterator of [DeferredIterator, DeferredKeyIterator, DeferredValueIterator]) {
-  Iterator.prototype[kUndefer] = function () {
-    if (this.db.status === 'open') {
-      this[kNut] = this[kFactory]()
-    }
-  }
-
-  Iterator.prototype._next = function (callback) {
-    if (this[kNut] !== null) {
-      this[kNut].next(callback)
-    } else if (this.db.status === 'opening') {
-      this.db.defer(() => this._next(callback))
-    } else {
-      this.nextTick(callback, new ModuleError('Iterator is not open: cannot call next() after close()', {
-        code: 'LEVEL_ITERATOR_NOT_OPEN'
-      }))
-    }
-  }
-
-  Iterator.prototype._nextv = function (size, options, callback) {
-    if (this[kNut] !== null) {
-      this[kNut].nextv(size, options, callback)
-    } else if (this.db.status === 'opening') {
-      this.db.defer(() => this._nextv(size, options, callback))
-    } else {
-      this.nextTick(callback, new ModuleError('Iterator is not open: cannot call nextv() after close()', {
-        code: 'LEVEL_ITERATOR_NOT_OPEN'
-      }))
-    }
-  }
-
-  Iterator.prototype._all = function (options, callback) {
-    if (this[kNut] !== null) {
-      this[kNut].all(callback)
-    } else if (this.db.status === 'opening') {
-      this.db.defer(() => this._all(options, callback))
-    } else {
-      this.nextTick(callback, new ModuleError('Iterator is not open: cannot call all() after close()', {
-        code: 'LEVEL_ITERATOR_NOT_OPEN'
-      }))
-    }
-  }
-
-  Iterator.prototype._seek = function (target, options) {
-    if (this[kNut] !== null) {
-      // TODO: explain why we need _seek() rather than seek() here
-      this[kNut]._seek(target, options)
-    } else if (this.db.status === 'opening') {
-      this.db.defer(() => this._seek(target, options))
-    }
-  }
-
-  Iterator.prototype._close = function (callback) {
-    if (this[kNut] !== null) {
-      this[kNut].close(callback)
-    } else if (this.db.status === 'opening') {
-      this.db.defer(() => this._close(callback))
-    } else {
-      this.nextTick(callback)
-    }
-  }
-}
-
-exports.DeferredIterator = DeferredIterator
-exports.DeferredKeyIterator = DeferredKeyIterator
-exports.DeferredValueIterator = DeferredValueIterator
-
-},{"../abstract-iterator":4,"module-error":72}],13:[function(require,module,exports){
-'use strict'
-
-const queueMicrotask = require('queue-microtask')
-
-module.exports = function (fn, ...args) {
-  if (args.length === 0) {
-    queueMicrotask(fn)
-  } else {
-    queueMicrotask(() => fn(...args))
-  }
-}
-
-},{"queue-microtask":98}],14:[function(require,module,exports){
-'use strict'
-
-const ModuleError = require('module-error')
-const hasOwnProperty = Object.prototype.hasOwnProperty
-const rangeOptions = new Set(['lt', 'lte', 'gt', 'gte'])
-
-module.exports = function (options, keyEncoding) {
-  const result = {}
-
-  for (const k in options) {
-    if (!hasOwnProperty.call(options, k)) continue
-    if (k === 'keyEncoding' || k === 'valueEncoding') continue
-
-    if (k === 'start' || k === 'end') {
-      throw new ModuleError(`The legacy range option '${k}' has been removed`, {
-        code: 'LEVEL_LEGACY'
-      })
-    } else if (k === 'encoding') {
-      // To help migrating to abstract-level
-      throw new ModuleError("The levelup-style 'encoding' alias has been removed, use 'valueEncoding' instead", {
-        code: 'LEVEL_LEGACY'
-      })
-    }
-
-    if (rangeOptions.has(k)) {
-      // Note that we don't reject nullish and empty options here. While
-      // those types are invalid as keys, they are valid as range options.
-      result[k] = keyEncoding.encode(options[k])
-    } else {
-      result[k] = options[k]
-    }
-  }
-
-  result.reverse = !!result.reverse
-  result.limit = Number.isInteger(result.limit) && result.limit >= 0 ? result.limit : -1
-
-  return result
-}
-
-},{"module-error":72}],15:[function(require,module,exports){
+},{"./src/components/map/index.js":94,"./src/components/split-pane.js":96,"./src/components/tabular.js":97,"choo":13,"choo/html":12}],3:[function(require,module,exports){
 (function (global){(function (){
 'use strict';
 
@@ -15257,7 +13060,7 @@ module.exports = function availableTypedArrays() {
 };
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],16:[function(require,module,exports){
+},{}],4:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength
@@ -15409,619 +13212,11 @@ function fromByteArray (uint8) {
   return parts.join('')
 }
 
-},{}],17:[function(require,module,exports){
-/* global indexedDB */
-
-'use strict'
-
-const { AbstractLevel } = require('abstract-level')
-const ModuleError = require('module-error')
-const parallel = require('run-parallel-limit')
-const { fromCallback } = require('catering')
-const { Iterator } = require('./iterator')
-const deserialize = require('./util/deserialize')
-const clear = require('./util/clear')
-const createKeyRange = require('./util/key-range')
-
-// Keep as-is for compatibility with existing level-js databases
-const DEFAULT_PREFIX = 'level-js-'
-
-const kIDB = Symbol('idb')
-const kNamePrefix = Symbol('namePrefix')
-const kLocation = Symbol('location')
-const kVersion = Symbol('version')
-const kStore = Symbol('store')
-const kOnComplete = Symbol('onComplete')
-const kPromise = Symbol('promise')
-
-class BrowserLevel extends AbstractLevel {
-  constructor (location, options, _) {
-    // To help migrating to abstract-level
-    if (typeof options === 'function' || typeof _ === 'function') {
-      throw new ModuleError('The levelup-style callback argument has been removed', {
-        code: 'LEVEL_LEGACY'
-      })
-    }
-
-    const { prefix, version, ...forward } = options || {}
-
-    super({
-      encodings: { view: true },
-      snapshots: false,
-      createIfMissing: false,
-      errorIfExists: false,
-      seek: true
-    }, forward)
-
-    if (typeof location !== 'string') {
-      throw new Error('constructor requires a location string argument')
-    }
-
-    // TODO (next major): remove default prefix
-    this[kLocation] = location
-    this[kNamePrefix] = prefix == null ? DEFAULT_PREFIX : prefix
-    this[kVersion] = parseInt(version || 1, 10)
-    this[kIDB] = null
-  }
-
-  get location () {
-    return this[kLocation]
-  }
-
-  get namePrefix () {
-    return this[kNamePrefix]
-  }
-
-  get version () {
-    return this[kVersion]
-  }
-
-  // Exposed for backwards compat and unit tests
-  get db () {
-    return this[kIDB]
-  }
-
-  get type () {
-    return 'browser-level'
-  }
-
-  _open (options, callback) {
-    const req = indexedDB.open(this[kNamePrefix] + this[kLocation], this[kVersion])
-
-    req.onerror = function () {
-      callback(req.error || new Error('unknown error'))
-    }
-
-    req.onsuccess = () => {
-      this[kIDB] = req.result
-      callback()
-    }
-
-    req.onupgradeneeded = (ev) => {
-      const db = ev.target.result
-
-      if (!db.objectStoreNames.contains(this[kLocation])) {
-        db.createObjectStore(this[kLocation])
-      }
-    }
-  }
-
-  [kStore] (mode) {
-    const transaction = this[kIDB].transaction([this[kLocation]], mode)
-    return transaction.objectStore(this[kLocation])
-  }
-
-  [kOnComplete] (request, callback) {
-    const transaction = request.transaction
-
-    // Take advantage of the fact that a non-canceled request error aborts
-    // the transaction. I.e. no need to listen for "request.onerror".
-    transaction.onabort = function () {
-      callback(transaction.error || new Error('aborted by user'))
-    }
-
-    transaction.oncomplete = function () {
-      callback(null, request.result)
-    }
-  }
-
-  _get (key, options, callback) {
-    const store = this[kStore]('readonly')
-    let req
-
-    try {
-      req = store.get(key)
-    } catch (err) {
-      return this.nextTick(callback, err)
-    }
-
-    this[kOnComplete](req, function (err, value) {
-      if (err) return callback(err)
-
-      if (value === undefined) {
-        return callback(new ModuleError('Entry not found', {
-          code: 'LEVEL_NOT_FOUND'
-        }))
-      }
-
-      callback(null, deserialize(value))
-    })
-  }
-
-  _getMany (keys, options, callback) {
-    const store = this[kStore]('readonly')
-    const tasks = keys.map((key) => (next) => {
-      let request
-
-      try {
-        request = store.get(key)
-      } catch (err) {
-        return next(err)
-      }
-
-      request.onsuccess = () => {
-        const value = request.result
-        next(null, value === undefined ? value : deserialize(value))
-      }
-
-      request.onerror = (ev) => {
-        ev.stopPropagation()
-        next(request.error)
-      }
-    })
-
-    parallel(tasks, 16, callback)
-  }
-
-  _del (key, options, callback) {
-    const store = this[kStore]('readwrite')
-    let req
-
-    try {
-      req = store.delete(key)
-    } catch (err) {
-      return this.nextTick(callback, err)
-    }
-
-    this[kOnComplete](req, callback)
-  }
-
-  _put (key, value, options, callback) {
-    const store = this[kStore]('readwrite')
-    let req
-
-    try {
-      // Will throw a DataError or DataCloneError if the environment
-      // does not support serializing the key or value respectively.
-      req = store.put(value, key)
-    } catch (err) {
-      return this.nextTick(callback, err)
-    }
-
-    this[kOnComplete](req, callback)
-  }
-
-  // TODO: implement key and value iterators
-  _iterator (options) {
-    return new Iterator(this, this[kLocation], options)
-  }
-
-  _batch (operations, options, callback) {
-    const store = this[kStore]('readwrite')
-    const transaction = store.transaction
-    let index = 0
-    let error
-
-    transaction.onabort = function () {
-      callback(error || transaction.error || new Error('aborted by user'))
-    }
-
-    transaction.oncomplete = function () {
-      callback()
-    }
-
-    // Wait for a request to complete before making the next, saving CPU.
-    function loop () {
-      const op = operations[index++]
-      const key = op.key
-
-      let req
-
-      try {
-        req = op.type === 'del' ? store.delete(key) : store.put(op.value, key)
-      } catch (err) {
-        error = err
-        transaction.abort()
-        return
-      }
-
-      if (index < operations.length) {
-        req.onsuccess = loop
-      } else if (typeof transaction.commit === 'function') {
-        // Commit now instead of waiting for auto-commit
-        transaction.commit()
-      }
-    }
-
-    loop()
-  }
-
-  _clear (options, callback) {
-    let keyRange
-    let req
-
-    try {
-      keyRange = createKeyRange(options)
-    } catch (e) {
-      // The lower key is greater than the upper key.
-      // IndexedDB throws an error, but we'll just do nothing.
-      return this.nextTick(callback)
-    }
-
-    if (options.limit >= 0) {
-      // IDBObjectStore#delete(range) doesn't have such an option.
-      // Fall back to cursor-based implementation.
-      return clear(this, this[kLocation], keyRange, options, callback)
-    }
-
-    try {
-      const store = this[kStore]('readwrite')
-      req = keyRange ? store.delete(keyRange) : store.clear()
-    } catch (err) {
-      return this.nextTick(callback, err)
-    }
-
-    this[kOnComplete](req, callback)
-  }
-
-  _close (callback) {
-    this[kIDB].close()
-    this.nextTick(callback)
-  }
-}
-
-BrowserLevel.destroy = function (location, prefix, callback) {
-  if (typeof prefix === 'function') {
-    callback = prefix
-    prefix = DEFAULT_PREFIX
-  }
-
-  callback = fromCallback(callback, kPromise)
-  const request = indexedDB.deleteDatabase(prefix + location)
-
-  request.onsuccess = function () {
-    callback()
-  }
-
-  request.onerror = function (err) {
-    callback(err)
-  }
-
-  return callback[kPromise]
-}
-
-exports.BrowserLevel = BrowserLevel
-
-},{"./iterator":18,"./util/clear":19,"./util/deserialize":20,"./util/key-range":21,"abstract-level":6,"catering":34,"module-error":72,"run-parallel-limit":114}],18:[function(require,module,exports){
-'use strict'
-
-const { AbstractIterator } = require('abstract-level')
-const createKeyRange = require('./util/key-range')
-const deserialize = require('./util/deserialize')
-
-const kCache = Symbol('cache')
-const kFinished = Symbol('finished')
-const kOptions = Symbol('options')
-const kCurrentOptions = Symbol('currentOptions')
-const kPosition = Symbol('position')
-const kLocation = Symbol('location')
-const kFirst = Symbol('first')
-const emptyOptions = {}
-
-class Iterator extends AbstractIterator {
-  constructor (db, location, options) {
-    super(db, options)
-
-    this[kCache] = []
-    this[kFinished] = this.limit === 0
-    this[kOptions] = options
-    this[kCurrentOptions] = { ...options }
-    this[kPosition] = undefined
-    this[kLocation] = location
-    this[kFirst] = true
-  }
-
-  // Note: if called by _all() then size can be Infinity. This is an internal
-  // detail; by design AbstractIterator.nextv() does not support Infinity.
-  _nextv (size, options, callback) {
-    this[kFirst] = false
-
-    if (this[kFinished]) {
-      return this.nextTick(callback, null, [])
-    } else if (this[kCache].length > 0) {
-      // TODO: mixing next and nextv is not covered by test suite
-      size = Math.min(size, this[kCache].length)
-      return this.nextTick(callback, null, this[kCache].splice(0, size))
-    }
-
-    // Adjust range by what we already visited
-    if (this[kPosition] !== undefined) {
-      if (this[kOptions].reverse) {
-        this[kCurrentOptions].lt = this[kPosition]
-        this[kCurrentOptions].lte = undefined
-      } else {
-        this[kCurrentOptions].gt = this[kPosition]
-        this[kCurrentOptions].gte = undefined
-      }
-    }
-
-    let keyRange
-
-    try {
-      keyRange = createKeyRange(this[kCurrentOptions])
-    } catch (_) {
-      // The lower key is greater than the upper key.
-      // IndexedDB throws an error, but we'll just return 0 results.
-      this[kFinished] = true
-      return this.nextTick(callback, null, [])
-    }
-
-    const transaction = this.db.db.transaction([this[kLocation]], 'readonly')
-    const store = transaction.objectStore(this[kLocation])
-    const entries = []
-
-    if (!this[kOptions].reverse) {
-      let keys
-      let values
-
-      const complete = () => {
-        // Wait for both requests to complete
-        if (keys === undefined || values === undefined) return
-
-        const length = Math.max(keys.length, values.length)
-
-        if (length === 0 || size === Infinity) {
-          this[kFinished] = true
-        } else {
-          this[kPosition] = keys[length - 1]
-        }
-
-        // Resize
-        entries.length = length
-
-        // Merge keys and values
-        for (let i = 0; i < length; i++) {
-          const key = keys[i]
-          const value = values[i]
-
-          entries[i] = [
-            this[kOptions].keys && key !== undefined ? deserialize(key) : undefined,
-            this[kOptions].values && value !== undefined ? deserialize(value) : undefined
-          ]
-        }
-
-        maybeCommit(transaction)
-      }
-
-      // If keys were not requested and size is Infinity, we don't have to keep
-      // track of position and can thus skip getting keys.
-      if (this[kOptions].keys || size < Infinity) {
-        store.getAllKeys(keyRange, size < Infinity ? size : undefined).onsuccess = (ev) => {
-          keys = ev.target.result
-          complete()
-        }
-      } else {
-        keys = []
-        this.nextTick(complete)
-      }
-
-      if (this[kOptions].values) {
-        store.getAll(keyRange, size < Infinity ? size : undefined).onsuccess = (ev) => {
-          values = ev.target.result
-          complete()
-        }
-      } else {
-        values = []
-        this.nextTick(complete)
-      }
-    } else {
-      // Can't use getAll() in reverse, so use a slower cursor that yields one item at a time
-      // TODO: test if all target browsers support openKeyCursor
-      const method = !this[kOptions].values && store.openKeyCursor ? 'openKeyCursor' : 'openCursor'
-
-      store[method](keyRange, 'prev').onsuccess = (ev) => {
-        const cursor = ev.target.result
-
-        if (cursor) {
-          const { key, value } = cursor
-          this[kPosition] = key
-
-          entries.push([
-            this[kOptions].keys && key !== undefined ? deserialize(key) : undefined,
-            this[kOptions].values && value !== undefined ? deserialize(value) : undefined
-          ])
-
-          if (entries.length < size) {
-            cursor.continue()
-          } else {
-            maybeCommit(transaction)
-          }
-        } else {
-          this[kFinished] = true
-        }
-      }
-    }
-
-    // If an error occurs (on the request), the transaction will abort.
-    transaction.onabort = () => {
-      callback(transaction.error || new Error('aborted by user'))
-      callback = null
-    }
-
-    transaction.oncomplete = () => {
-      callback(null, entries)
-      callback = null
-    }
-  }
-
-  _next (callback) {
-    if (this[kCache].length > 0) {
-      const [key, value] = this[kCache].shift()
-      this.nextTick(callback, null, key, value)
-    } else if (this[kFinished]) {
-      this.nextTick(callback)
-    } else {
-      let size = Math.min(100, this.limit - this.count)
-
-      if (this[kFirst]) {
-        // It's common to only want one entry initially or after a seek()
-        this[kFirst] = false
-        size = 1
-      }
-
-      this._nextv(size, emptyOptions, (err, entries) => {
-        if (err) return callback(err)
-        this[kCache] = entries
-        this._next(callback)
-      })
-    }
-  }
-
-  _all (options, callback) {
-    this[kFirst] = false
-
-    // TODO: mixing next and all is not covered by test suite
-    const cache = this[kCache].splice(0, this[kCache].length)
-    const size = this.limit - this.count - cache.length
-
-    if (size <= 0) {
-      return this.nextTick(callback, null, cache)
-    }
-
-    this._nextv(size, emptyOptions, (err, entries) => {
-      if (err) return callback(err)
-      if (cache.length > 0) entries = cache.concat(entries)
-      callback(null, entries)
-    })
-  }
-
-  _seek (target, options) {
-    this[kFirst] = true
-    this[kCache] = []
-    this[kFinished] = false
-    this[kPosition] = undefined
-
-    // TODO: not covered by test suite
-    this[kCurrentOptions] = { ...this[kOptions] }
-
-    let keyRange
-
-    try {
-      keyRange = createKeyRange(this[kOptions])
-    } catch (_) {
-      this[kFinished] = true
-      return
-    }
-
-    if (keyRange !== null && !keyRange.includes(target)) {
-      this[kFinished] = true
-    } else if (this[kOptions].reverse) {
-      this[kCurrentOptions].lte = target
-    } else {
-      this[kCurrentOptions].gte = target
-    }
-  }
-}
-
-exports.Iterator = Iterator
-
-function maybeCommit (transaction) {
-  // Commit (meaning close) now instead of waiting for auto-commit
-  if (typeof transaction.commit === 'function') {
-    transaction.commit()
-  }
-}
-
-},{"./util/deserialize":20,"./util/key-range":21,"abstract-level":6}],19:[function(require,module,exports){
-'use strict'
-
-module.exports = function clear (db, location, keyRange, options, callback) {
-  if (options.limit === 0) return db.nextTick(callback)
-
-  const transaction = db.db.transaction([location], 'readwrite')
-  const store = transaction.objectStore(location)
-  let count = 0
-
-  transaction.oncomplete = function () {
-    callback()
-  }
-
-  transaction.onabort = function () {
-    callback(transaction.error || new Error('aborted by user'))
-  }
-
-  // A key cursor is faster (skips reading values) but not supported by IE
-  // TODO: we no longer support IE. Test others
-  const method = store.openKeyCursor ? 'openKeyCursor' : 'openCursor'
-  const direction = options.reverse ? 'prev' : 'next'
-
-  store[method](keyRange, direction).onsuccess = function (ev) {
-    const cursor = ev.target.result
-
-    if (cursor) {
-      // Wait for a request to complete before continuing, saving CPU.
-      store.delete(cursor.key).onsuccess = function () {
-        if (options.limit <= 0 || ++count < options.limit) {
-          cursor.continue()
-        }
-      }
-    }
-  }
-}
-
-},{}],20:[function(require,module,exports){
-'use strict'
-
-const textEncoder = new TextEncoder()
-
-module.exports = function (data) {
-  if (data instanceof Uint8Array) {
-    return data
-  } else if (data instanceof ArrayBuffer) {
-    return new Uint8Array(data)
-  } else {
-    // Non-binary data stored with an old version (level-js < 5.0.0)
-    return textEncoder.encode(data)
-  }
-}
-
-},{}],21:[function(require,module,exports){
-/* global IDBKeyRange */
-
-'use strict'
-
-module.exports = function createKeyRange (options) {
-  const lower = options.gte !== undefined ? options.gte : options.gt !== undefined ? options.gt : undefined
-  const upper = options.lte !== undefined ? options.lte : options.lt !== undefined ? options.lt : undefined
-  const lowerExclusive = options.gte === undefined
-  const upperExclusive = options.lte === undefined
-
-  if (lower !== undefined && upper !== undefined) {
-    return IDBKeyRange.bound(lower, upper, lowerExclusive, upperExclusive)
-  } else if (lower !== undefined) {
-    return IDBKeyRange.lowerBound(lower, lowerExclusive)
-  } else if (upper !== undefined) {
-    return IDBKeyRange.upperBound(upper, upperExclusive)
-  } else {
-    return null
-  }
-}
-
-},{}],22:[function(require,module,exports){
-
-},{}],23:[function(require,module,exports){
-arguments[4][22][0].apply(exports,arguments)
-},{"dup":22}],24:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
+
+},{}],6:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5}],7:[function(require,module,exports){
 (function (Buffer){(function (){
 /*!
  * The buffer module from node.js, for the browser.
@@ -17802,754 +14997,7 @@ function numberIsNaN (obj) {
 }
 
 }).call(this)}).call(this,require("buffer").Buffer)
-},{"base64-js":16,"buffer":24,"ieee754":58}],25:[function(require,module,exports){
-var base = require('typewise-core/base')
-var codecs = require('./codecs')
-var util = require('./util')
-
-//
-// extend core sorts defined by typewise with bytewise-specific functionality
-//
-
-// byte represents byte tag prefix in encoded form, enforcing binary total order
-// type tag is 1 byte, which gives us plenty of room to grow
-
-//
-// boundary types
-//
-base.bound.encode = util.encodeBaseBound
-
-//
-// value types
-//
-var sorts = base.sorts
-
-sorts.void.byte = 0xf0
-
-sorts.null.byte = 0x10
-
-
-var BOOLEAN = sorts.boolean
-BOOLEAN.sorts.false.byte = 0x20
-BOOLEAN.sorts.true.byte = 0x21
-BOOLEAN.bound.encode = util.encodeBound
-
-
-var NUMBER = sorts.number
-NUMBER.sorts.min.byte = 0x40
-NUMBER.sorts.negative.byte = 0x41
-NUMBER.sorts.positive.byte = 0x42
-NUMBER.sorts.max.byte = 0x43
-NUMBER.sorts.negative.codec = codecs.NEGATIVE_FLOAT
-NUMBER.sorts.positive.codec = codecs.POSITIVE_FLOAT
-NUMBER.bound.encode = util.encodeBound
-
-
-var DATE = sorts.date
-DATE.sorts.negative.byte = 0x51
-DATE.sorts.positive.byte = 0x52
-DATE.sorts.negative.codec = codecs.PRE_EPOCH_DATE
-DATE.sorts.positive.codec = codecs.POST_EPOCH_DATE
-DATE.bound.encode = util.encodeBound
-
-
-var BINARY = sorts.binary
-BINARY.byte = 0x60
-BINARY.codec = codecs.UINT8
-BINARY.bound.encode = util.encodeBound
-
-
-var STRING = sorts.string
-STRING.byte = 0x70
-STRING.codec = codecs.UTF8
-STRING.bound.encode = util.encodeBound
-
-
-var ARRAY = sorts.array
-ARRAY.byte = 0xa0
-ARRAY.codec = codecs.LIST
-ARRAY.bound.encode = util.encodeListBound
-
-
-// var OBJECT = sorts.object
-// OBJECT.byte = 0xb0
-// OBJECT.codec = codecs.HASH
-// OBJECT.bound.encode = util.encodeListBound
-
-module.exports = base
-
-},{"./codecs":26,"./util":28,"typewise-core/base":122}],26:[function(require,module,exports){
-(function (Buffer){(function (){
-var util = require('./util')
-
-var FLOAT_LENGTH = 8
-
-function identity(value) {
-  return value
-}
-
-function shortlexEncode(codec) {
-  return function (source, base) {
-    // stupid lazy implementation
-    // TODO: allow length getter to be provided
-    var length = util.encodeFloat(source.length)
-    var body = codec.encode(source, base)
-    return Buffer.concat([ length, body ])
-  }
-}
-
-function shortlexDecode(codec) {
-  return function (buffer) {
-    // stupid lazy implementation
-    return codec.decode(this, buffer.slice(FLOAT_LENGTH))
-  }
-}
-
-function shortlexParse(codec) {
-  // TODO
-  return function (buffer, base) {
-    throw new Error('NYI')
-  }
-}
-
-function shortlex(codec) {
-  return {
-    encode: shortlexEncode(codec),
-    decode: shortlexDecode(codec),
-    parse: shortlexParse(codec)
-  }
-}
-
-//
-// pairs of encode/decode functions
-//
-var codecs = exports
-
-codecs.HEX = {
-  encode: function (source) {
-    return new Buffer(source, 'hex')
-  },
-  decode: function (buffer) {
-    return buffer.toString('hex')
-  }
-}
-
-codecs.UINT8 = {
-  encode: identity,
-  decode: identity,
-  escape: util.escapeFlat,
-  unescape: util.unescapeFlat
-}
-
-codecs.UINT8_SHORTLEX = shortlex(codecs.UINT8)
-
-codecs.UTF8 = {
-  encode: function (source) {
-    return new Buffer(source, 'utf8')
-  },
-  decode: function (buffer) {
-    return buffer.toString('utf8')
-  },
-  escape: util.escapeFlatLow,
-  unescape: util.unescapeFlatLow
-}
-
-codecs.UTF8_SHORTLEX = shortlex(codecs.UTF8)
-
-codecs.POSITIVE_FLOAT = {
-  length: FLOAT_LENGTH,
-  encode: util.encodeFloat,
-  decode: util.decodeFloat
-}
-
-codecs.NEGATIVE_FLOAT = {
-  length: FLOAT_LENGTH,
-  encode: util.encodeFloat,
-  decode: function (buffer) {
-    return util.decodeFloat(buffer, null, true)
-  }
-}
-
-codecs.POST_EPOCH_DATE = {
-  length: FLOAT_LENGTH,
-  encode: util.encodeFloat,
-  decode: function (buffer) {
-    return new Date(util.decodeFloat(buffer))
-  }
-}
-
-codecs.PRE_EPOCH_DATE = {
-  length: FLOAT_LENGTH,
-  encode: util.encodeFloat,
-  decode: function (buffer) {
-    return new Date(util.decodeFloat(buffer, null, true))
-  }
-}
-
-//
-// base encoding for complex structures
-//
-codecs.LIST = {
-  encode: util.encodeList,
-  decode: util.decodeList
-}
-
-codecs.TUPLE = shortlex(codecs.LIST)
-
-//
-// member order is preserved and accounted for in sort (except for number keys)
-//
-codecs.HASH = {
-  // TODO
-  // encode: util.encodeHash,
-  // decode: util.decodeHash
-}
-
-codecs.RECORD = shortlex(codecs.HASH)
-
-}).call(this)}).call(this,require("buffer").Buffer)
-},{"./util":28,"buffer":24}],27:[function(require,module,exports){
-(function (Buffer){(function (){
-var assert = require('./util').assert
-var base = require('./base')
-var codecs = require('./codecs')
-
-var bytewise = exports
-
-//
-// expose type information
-//
-var sorts = bytewise.sorts = base.sorts
-bytewise.bound = base.bound
-bytewise.compare = base.compare
-bytewise.equal = base.equal
-
-//
-// generate a buffer with type's byte prefix from source value
-//
-function serialize(type, source, options) {
-  var codec = type.codec
-  if (!codec)
-    return postEncode(new Buffer([ type.byte ]), options)
-
-  var buffer = codec.encode(source, bytewise)
-
-  if (options && options.nested && codec.escape)
-    buffer = codec.escape(buffer)
-
-  var hint = typeof codec.length === 'number' ? (codec.length + 1) : void 0 
-  var buffers = [ new Buffer([ type.byte ]), buffer ]
-  return postEncode(Buffer.concat(buffers, hint), options)
-}
-
-//
-// core encode logic
-//
-bytewise.encode = function(source, options) {
-
-  // check for invalid/incomparable values
-  assert(!base.invalid(source), 'Invalid value')
-
-  // encode bound types (ranges)
-  var boundary = base.bound.getBoundary(source)
-  if (boundary)
-    return boundary.encode(source, bytewise)
-
-  // encode standard value-typed sorts
-  var order = base.order
-  var sort
-  for (var i = 0, length = order.length; i < length; ++i) {
-    sort = sorts[order[i]]
-
-    if (sort.is(source)) {
-
-      // loop over any subsorts defined on sort
-      // TODO: clean up
-      var subsorts = sort.sorts ||  { '': sort }
-      for (key in subsorts) {
-        var subsort = subsorts[key]
-        if (subsort.is(source)) 
-          return serialize(subsort, source, options)
-      }
-
-      // source is an unsupported subsort
-      assert(false, 'Unsupported sort value')
-    }
-  }
-
-  // no type descriptor found
-  assert(false, 'Unknown value')
-}
-
-//
-// core decode logic
-//
-bytewise.decode = function (buffer, options) {
-  // attempt to decode string input using configurable codec
-  if (typeof buffer === 'string') {
-    buffer = bytewise.stringCodec.encode(buffer)
-  }
-
-  assert(!buffer || !buffer.undecodable, 'Encoded value not decodable')
-
-  var byte = buffer[0]
-  var type = bytewise.getType(byte)
-  assert(type, 'Invalid encoding: ' + buffer)
-
-  // if type provides a decoder it is passed the base type system as second arg
-  var codec = type.codec
-  if (codec) {
-    var decoded = codec.decode(buffer.slice(1), bytewise)
-
-    if (options && options.nested && codec.unescape)
-      decoded = codec.unescape(decoded)
-
-    return postDecode(decoded, options)
-  }
-
-  // nullary types without a codec must provide a value for their decoded form
-  assert('value' in type, 'Unsupported encoding: ' + buffer)
-  return postDecode(type.value, options)
-}
-
-//
-// process top level
-//
-function postEncode(encoded, options) {
-  if (options === null)
-    return encoded
-
-  return bytewise.postEncode(encoded, options)
-}
-
-//
-// invoked after encoding with encoded buffer instance
-//
-bytewise.postEncode = function (encoded, options) {
-
-  // override buffer toString method to default to hex to help coercion issues
-  // TODO: just return pure buffer, do this toString hackery in bytewise
-  encoded.toString = function (encoding) {
-    if (!encoding)
-      return bytewise.stringCodec.decode(encoded)
-
-    return Buffer.prototype.toString.apply(encoded, arguments)
-  }
-
-  return encoded
-}
-
-function postDecode(decoded, options) {
-  if (options === null)
-    return decoded
-
-  return bytewise.postDecode(decoded, options)
-}
-
-//
-// invoked after decoding with decoded value
-//
-bytewise.postDecode = function (decoded, options) {
-  return decoded
-}
-
-
-//
-// registry mapping byte prefixes to type descriptors
-//
-var PREFIX_REGISTRY
-
-function registerType(type) {
-  var byte = type && type.byte
-  if (byte == null)
-    return
-
-  if (byte in PREFIX_REGISTRY)
-    assert.deepEqual(type, PREFIX_REGISTRY[byte], 'Duplicate prefix: ' + byte)
-
-  PREFIX_REGISTRY[type.byte] = type
-}
-
-function registerTypes(types) {
-  for (var key in types) {
-    registerType(types[key])
-  }
-}
-
-//
-// look up type descriptor associated with a given byte prefix
-//
-bytewise.getType = function (byte) {
-
-  // construct and memoize byte prefix registry on first run
-  if (!PREFIX_REGISTRY) {
-    PREFIX_REGISTRY = {}
-
-    // register sorts
-    var sort
-    for (var key in sorts) {
-      sort = sorts[key]
-
-      // if sort has subsorts register these instead
-      sort.sorts ? registerTypes(sort.sorts) : registerType(sort)
-    }
-  }
-
-  return PREFIX_REGISTRY[byte]
-}
-
-bytewise.buffer = true
-bytewise.stringCodec = codecs.HEX
-bytewise.type = 'bytewise-core'
-
-
-}).call(this)}).call(this,require("buffer").Buffer)
-},{"./base":25,"./codecs":26,"./util":28,"buffer":24}],28:[function(require,module,exports){
-(function (Buffer){(function (){
-var util = exports
-
-//
-// buffer compare
-//
-util.compare = require('typewise-core/collation').bitwise
-
-//
-// buffer equality
-//
-util.equal = function (a, b) {
-  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b))
-    return
-
-  if (a === b)
-    return true
-
-  if (typeof a.equals === 'function')
-    return a.equals(b)
-
-  return util.compare(a, b) === 0
-}
-
-var assert = util.assert = function (test, message) {
-  if (!test)
-    throw new TypeError(message)
-}
-
-var FLOAT_LENGTH = 8
-
-util.invertBytes = function (buffer) {
-  var bytes = []
-  for (var i = 0, end = buffer.length; i < end; ++i) {
-    bytes.push(~buffer[i])
-  }
-
-  return new Buffer(bytes)
-}
-
-util.encodeFloat = function (value) {
-  var buffer = new Buffer(FLOAT_LENGTH)
-  if (value < 0) {
-    //
-    // write negative numbers as negated positive values to invert bytes
-    //
-    buffer.writeDoubleBE(-value.valueOf(), 0)
-    return util.invertBytes(buffer)
-  }
-
-  //
-  // normalize -0 values to 0
-  //
-  buffer.writeDoubleBE(value.valueOf() || 0, 0)
-  return buffer
-}
-
-util.decodeFloat = function (buffer, base, negative) {
-  assert(buffer.length === FLOAT_LENGTH, 'Invalid float encoding length')
-
-  if (negative)
-    buffer = util.invertBytes(buffer)
-
-  var value = buffer.readDoubleBE(0)
-  return negative ? -value : value
-}
-
-//
-// sigil for controlling the escapement functions (TODO: clean this up)
-//
-var SKIP_HIGH_BYTES = {}
-
-util.escapeFlat = function (buffer, options) {
-  //
-  // escape high and low bytes 0x00 and 0xff (and by necessity, 0x01 and 0xfe)
-  //
-  var b, bytes = []
-  for (var i = 0, end = buffer.length; i < end; ++i) {
-    b = buffer[i]
-
-    //
-    // escape low bytes with 0x01 and by adding 1
-    //
-    if (b === 0x01 || b === 0x00)
-      bytes.push(0x01, b + 1)
-
-    //
-    // escape high bytes with 0xfe and by subtracting 1
-    //
-    else if (options !== SKIP_HIGH_BYTES && (b === 0xfe || b === 0xff))
-      bytes.push(0xfe, b - 1)
-
-    //
-    // no escapement needed
-    //
-    else
-      bytes.push(b)
-  }
-
-  return new Buffer(bytes)
-}
-
-util.unescapeFlat = function (buffer, options) {
-  var b, bytes = []
-  //
-  // don't escape last byte
-  //
-  for (var i = 0, end = buffer.length; i < end; ++i) {
-    b = buffer[i]
-
-    //
-    // if low-byte escape tag use the following byte minus 1
-    //
-    if (b === 0x01)
-      bytes.push(buffer[++i] - 1)
-
-    //
-    // if high-byte escape tag use the following byte plus 1
-    //
-    else if (options !== SKIP_HIGH_BYTES && b === 0xfe)
-      bytes.push(buffer[++i] + 1)
-
-    //
-    // no unescapement needed
-    //
-    else
-      bytes.push(b)
-  }
-  return new Buffer(bytes)
-}
-
-util.escapeFlatLow = function (buffer) {
-  return util.escapeFlat(buffer, SKIP_HIGH_BYTES)
-}
-
-util.unescapeFlatLow = function (buffer) {
-  return util.unescapeFlat(buffer, SKIP_HIGH_BYTES)
-}
-
-util.encodeList = function (source, base) {
-  // TODO: cycle detection
-  var buffers = []
-  var undecodable
-
-  for (var i = 0, end = source.length; i < end; ++i) {
-    var buffer = base.encode(source[i], null)
-
-    //
-    // bypass assertions for undecodable types (i.e. range bounds)
-    //
-    undecodable || (undecodable = buffer.undecodable)
-    if (undecodable) {
-      buffers.push(buffer)
-      continue
-    }
-
-    var sort = base.getType(buffer[0])
-    assert(sort, 'List encoding failure: ' + buffer)
-
-    //
-    // escape sorts if it requires it and add closing byte for element
-    //
-    if (sort.codec && sort.codec.escape)
-      buffers.push(sort.codec.escape(buffer), new Buffer([ 0x00 ]))
-
-    else
-      buffers.push(buffer)
-  }
-
-  //
-  // close the list with an end byte
-  //
-  buffers.push(new Buffer([ 0x00 ]))
-  buffer = Buffer.concat(buffers)
-
-  //
-  // propagate undecoable bit if set
-  //
-  undecodable && (buffer.undecodable = undecodable)
-  return buffer
-}
-
-util.decodeList = function (buffer, base) {
-  var result = util.parse(buffer, base)
-
-  assert(result[1] === buffer.length, 'Invalid encoding')
-  return result[0]
-}
-
-util.encodeHash = function (source, base) {
-  //
-  // packs hash into an array, e.g. `[ k1, v1, k2, v2, ... ]`
-  //
-  var list = []
-  Object.keys(source).forEach(function(key) {
-    list.push(key)
-    list.push(source[key])
-  })
-  return util.encodeList(list, base)
-}
-
-util.decodeHash = function (buffer, base) {
-  var list = util.decodeList(buffer, base)
-  var hash = Object.create(null)
-
-  for (var i = 0, end = list.length; i < end; ++i) {
-    hash[list[i]] = list[++i]
-  }
-
-  return hash
-}
-
-//
-// base parser for nested/recursive sorts
-//
-util.parse = function (buffer, base, sort) {
-  //
-  // parses and returns the first sort on the buffer and total bytes consumed
-  //
-  var codec = sort && sort.codec
-  var index, end
-
-  //
-  // nullary
-  //
-  if (sort && !codec)
-    return [ base.decode(new Buffer([ sort.byte ]), null), 0 ]
-
-  //
-  // custom parse implementation provided by sort
-  //
-  if (codec && codec.parse)
-    return codec.parse(buffer, base, sort)
-
-  //
-  // fixed length sort, decode fixed bytes
-  //
-  var length = codec && codec.length
-  if (typeof length === 'number')
-    return [ codec.decode(buffer.slice(0, length)), length ]
-
-  //
-  // escaped sort, seek to end byte and unescape
-  //
-  if (codec && codec.unescape) {
-    for (index = 0, end = buffer.length; index < end; ++index) {
-      if (buffer[index] === 0x00)
-        break
-    }
-
-    assert(index < buffer.length, 'No closing byte found for sequence')
-    var unescaped = codec.unescape(buffer.slice(0, index))
-
-    //
-    // add 1 to index to account for closing tag byte
-    //
-    return [ codec.decode(unescaped), index + 1 ]
-  }
-
-  //
-  // recursive sort, resolve each item iteratively
-  //
-  index = 0
-  var list = []
-  var next
-  while ((next = buffer[index]) !== 0x00) {
-    sort = base.getType(next)
-    var result = util.parse(buffer.slice(index + 1), base, sort)
-    list.push(result[0])
-
-    //
-    // offset current index by bytes consumed (plus a byte for the sort tag)
-    //
-    index += result[1] + 1
-    assert(index < buffer.length, 'No closing byte found for nested sequence')
-  }
-
-  //
-  // return parsed list and bytes consumed (plus a byte for the closing tag)
-  //
-  return [ list, index + 1 ]
-}
-
-//
-// helpers for encoding boundary types
-//
-function encodeBound(data, base) {
-  var prefix = data.prefix
-  var buffer = prefix ? base.encode(prefix, null) : new Buffer([ data.byte ])
-
-  if (data.upper)
-    buffer = Buffer.concat([ buffer, new Buffer([ 0xff ]) ])
-
-  return util.encodedBound(data, buffer)
-}
-
-util.encodeBound = function (data, base) {
-  return util.encodedBound(data, encodeBound(data, base))
-}
-
-util.encodeBaseBound = function (data, base) {
-  return util.encodedBound(data, new Buffer([ data.upper ? 0xff : 0x00 ]))
-}
-
-util.encodeListBound = function (data, base) {
-  var buffer = encodeBound(data, base)
-
-  if (data.prefix) {
-    //
-    // trim off end byte if a prefix, and do some hackery if an upper bound
-    //
-    var endByte = buffer[buffer.length - 1]
-    buffer = buffer.slice(0, -1)
-    if (data.upper)
-      buffer[buffer.length - 1] = endByte
-  }
-
-  return util.encodedBound(data, buffer)
-}
-
-//
-// add some metadata to generated buffer instance
-//
-util.encodedBound = function (data, buffer) {
-  buffer.undecodable = true
-  return buffer
-}
-
-}).call(this)}).call(this,require("buffer").Buffer)
-},{"buffer":24,"typewise-core/collation":123}],29:[function(require,module,exports){
-// require typewise first to extend with core typewise functionality
-require('typewise')
-
-// TODO: bytewise-binary encoding -- no hex parsing or toString hackery
-module.exports = require('bytewise-core')
-
-},{"bytewise-core":27,"typewise":126}],30:[function(require,module,exports){
-// TODO: standard bytewise encoding constructor
-// TODO: enhance binary encoding with optional hex helpers
-module.exports = require('./binary')
-},{"./binary":29}],31:[function(require,module,exports){
-// TODO: initialize and export a standard bytewise encoding, add hex and binary
-module.exports = require('./encoding/')
-
-},{"./encoding/":30}],32:[function(require,module,exports){
+},{"base64-js":4,"buffer":7,"ieee754":32}],8:[function(require,module,exports){
 'use strict';
 
 var GetIntrinsic = require('get-intrinsic');
@@ -18566,7 +15014,7 @@ module.exports = function callBoundIntrinsic(name, allowMissing) {
 	return intrinsic;
 };
 
-},{"./":33,"get-intrinsic":47}],33:[function(require,module,exports){
+},{"./":9,"get-intrinsic":21}],9:[function(require,module,exports){
 'use strict';
 
 var bind = require('function-bind');
@@ -18615,40 +15063,7 @@ if ($defineProperty) {
 	module.exports.apply = applyBind;
 }
 
-},{"function-bind":46,"get-intrinsic":47}],34:[function(require,module,exports){
-'use strict'
-
-var nextTick = require('./next-tick')
-
-exports.fromCallback = function (callback, symbol) {
-  if (callback === undefined) {
-    var promise = new Promise(function (resolve, reject) {
-      callback = function (err, res) {
-        if (err) reject(err)
-        else resolve(res)
-      }
-    })
-
-    callback[symbol !== undefined ? symbol : 'promise'] = promise
-  } else if (typeof callback !== 'function') {
-    throw new TypeError('Callback must be a function')
-  }
-
-  return callback
-}
-
-exports.fromPromise = function (promise, callback) {
-  if (callback === undefined) return promise
-
-  promise
-    .then(function (res) { nextTick(() => callback(null, res)) })
-    .catch(function (err) { nextTick(() => callback(err)) })
-}
-
-},{"./next-tick":35}],35:[function(require,module,exports){
-module.exports = typeof queueMicrotask === 'function' ? queueMicrotask : (fn) => Promise.resolve().then(fn)
-
-},{}],36:[function(require,module,exports){
+},{"function-bind":20,"get-intrinsic":21}],10:[function(require,module,exports){
 var assert = require('assert')
 var LRU = require('nanolru')
 
@@ -18691,13 +15106,13 @@ function newCall (Cls) {
   return new (Cls.bind.apply(Cls, arguments)) // eslint-disable-line
 }
 
-},{"assert":73,"nanolru":84}],37:[function(require,module,exports){
+},{"assert":39,"nanolru":50}],11:[function(require,module,exports){
 module.exports = require('nanocomponent')
 
-},{"nanocomponent":75}],38:[function(require,module,exports){
+},{"nanocomponent":41}],12:[function(require,module,exports){
 module.exports = require('nanohtml')
 
-},{"nanohtml":80}],39:[function(require,module,exports){
+},{"nanohtml":46}],13:[function(require,module,exports){
 var scrollToAnchor = require('scroll-to-anchor')
 var documentReady = require('document-ready')
 var nanotiming = require('nanotiming')
@@ -18981,7 +15396,7 @@ Choo.prototype._setCache = function (state) {
   }
 }
 
-},{"./component/cache":36,"assert":73,"document-ready":42,"nanobus":74,"nanohref":77,"nanomorph":85,"nanoquery":88,"nanoraf":89,"nanorouter":90,"nanotiming":92,"scroll-to-anchor":116}],40:[function(require,module,exports){
+},{"./component/cache":10,"assert":39,"document-ready":16,"nanobus":40,"nanohref":43,"nanomorph":51,"nanoquery":54,"nanoraf":55,"nanorouter":56,"nanotiming":58,"scroll-to-anchor":79}],14:[function(require,module,exports){
 /**
  * chroma.js - JavaScript library for color conversions
  *
@@ -22566,7 +18981,7 @@ Choo.prototype._setCache = function (state) {
 
 }));
 
-},{}],41:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 /*!
 	Copyright (c) 2018 Jed Watson.
 	Licensed under the MIT License (MIT), see
@@ -22628,7 +19043,7 @@ Choo.prototype._setCache = function (state) {
 	}
 }());
 
-},{}],42:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 'use strict'
 
 module.exports = ready
@@ -22647,7 +19062,7 @@ function ready (callback) {
   })
 }
 
-},{}],43:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -23146,7 +19561,7 @@ function eventTargetAgnosticAddListener(emitter, name, listener, flags) {
   }
 }
 
-},{}],44:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 'use strict';
 
 var isCallable = require('is-callable');
@@ -23210,7 +19625,7 @@ var forEach = function forEach(list, iterator, thisArg) {
 
 module.exports = forEach;
 
-},{"is-callable":61}],45:[function(require,module,exports){
+},{"is-callable":35}],19:[function(require,module,exports){
 'use strict';
 
 /* eslint no-invalid-this: 1 */
@@ -23264,14 +19679,14 @@ module.exports = function bind(that) {
     return bound;
 };
 
-},{}],46:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 'use strict';
 
 var implementation = require('./implementation');
 
 module.exports = Function.prototype.bind || implementation;
 
-},{"./implementation":45}],47:[function(require,module,exports){
+},{"./implementation":19}],21:[function(require,module,exports){
 'use strict';
 
 var undefined;
@@ -23624,7 +20039,7 @@ module.exports = function GetIntrinsic(name, allowMissing) {
 	return value;
 };
 
-},{"function-bind":46,"has":55,"has-proto":51,"has-symbols":52}],48:[function(require,module,exports){
+},{"function-bind":20,"has":29,"has-proto":25,"has-symbols":26}],22:[function(require,module,exports){
 (function (global){(function (){
 var topLevel = typeof global !== 'undefined' ? global :
     typeof window !== 'undefined' ? window : {}
@@ -23645,7 +20060,7 @@ if (typeof document !== 'undefined') {
 module.exports = doccy;
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"min-document":22}],49:[function(require,module,exports){
+},{"min-document":5}],23:[function(require,module,exports){
 (function (global){(function (){
 var win;
 
@@ -23662,7 +20077,7 @@ if (typeof window !== "undefined") {
 module.exports = win;
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],50:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 'use strict';
 
 var GetIntrinsic = require('get-intrinsic');
@@ -23680,7 +20095,7 @@ if ($gOPD) {
 
 module.exports = $gOPD;
 
-},{"get-intrinsic":47}],51:[function(require,module,exports){
+},{"get-intrinsic":21}],25:[function(require,module,exports){
 'use strict';
 
 var test = {
@@ -23693,7 +20108,7 @@ module.exports = function hasProto() {
 	return { __proto__: test }.foo === test.foo && !({ __proto__: null } instanceof $Object);
 };
 
-},{}],52:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 'use strict';
 
 var origSymbol = typeof Symbol !== 'undefined' && Symbol;
@@ -23708,7 +20123,7 @@ module.exports = function hasNativeSymbols() {
 	return hasSymbolSham();
 };
 
-},{"./shams":53}],53:[function(require,module,exports){
+},{"./shams":27}],27:[function(require,module,exports){
 'use strict';
 
 /* eslint complexity: [2, 18], max-statements: [2, 33] */
@@ -23752,7 +20167,7 @@ module.exports = function hasSymbols() {
 	return true;
 };
 
-},{}],54:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 'use strict';
 
 var hasSymbols = require('has-symbols/shams');
@@ -23761,14 +20176,14 @@ module.exports = function hasToStringTagShams() {
 	return hasSymbols() && !!Symbol.toStringTag;
 };
 
-},{"has-symbols/shams":53}],55:[function(require,module,exports){
+},{"has-symbols/shams":27}],29:[function(require,module,exports){
 'use strict';
 
 var bind = require('function-bind');
 
 module.exports = bind.call(Function.call, Object.prototype.hasOwnProperty);
 
-},{"function-bind":46}],56:[function(require,module,exports){
+},{"function-bind":20}],30:[function(require,module,exports){
 module.exports = attributeToProperty
 
 var transform = {
@@ -23789,7 +20204,7 @@ function attributeToProperty (h) {
   }
 }
 
-},{}],57:[function(require,module,exports){
+},{}],31:[function(require,module,exports){
 var attrToProp = require('hyperscript-attribute-to-property')
 
 var VAR = 0, TEXT = 1, OPEN = 2, CLOSE = 3, ATTR = 4
@@ -24086,7 +20501,7 @@ var closeRE = RegExp('^(' + [
 ].join('|') + ')(?:[\.#][a-zA-Z0-9\u007F-\uFFFF_:-]+)*$')
 function selfClosing (tag) { return closeRE.test(tag) }
 
-},{"hyperscript-attribute-to-property":56}],58:[function(require,module,exports){
+},{"hyperscript-attribute-to-property":30}],32:[function(require,module,exports){
 /*! ieee754. BSD-3-Clause License. Feross Aboukhadijeh <https://feross.org/opensource> */
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
@@ -24173,7 +20588,7 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],59:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -24202,7 +20617,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],60:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 'use strict';
 
 var hasToStringTag = require('has-tostringtag/shams')();
@@ -24237,7 +20652,7 @@ isStandardArguments.isLegacyArguments = isLegacyArguments; // for tests
 
 module.exports = supportsStandardArguments ? isStandardArguments : isLegacyArguments;
 
-},{"call-bind/callBound":32,"has-tostringtag/shams":54}],61:[function(require,module,exports){
+},{"call-bind/callBound":8,"has-tostringtag/shams":28}],35:[function(require,module,exports){
 'use strict';
 
 var fnToStr = Function.prototype.toString;
@@ -24340,7 +20755,7 @@ module.exports = reflectApply
 		return tryFunctionObject(value);
 	};
 
-},{}],62:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 'use strict';
 
 var toStr = Object.prototype.toString;
@@ -24380,7 +20795,7 @@ module.exports = function isGeneratorFunction(fn) {
 	return getProto(fn) === GeneratorFunction;
 };
 
-},{"has-tostringtag/shams":54}],63:[function(require,module,exports){
+},{"has-tostringtag/shams":28}],37:[function(require,module,exports){
 'use strict';
 
 var whichTypedArray = require('which-typed-array');
@@ -24389,576 +20804,7 @@ module.exports = function isTypedArray(value) {
 	return !!whichTypedArray(value);
 };
 
-},{"which-typed-array":133}],64:[function(require,module,exports){
-'use strict'
-
-exports.supports = function supports (...manifests) {
-  const manifest = manifests.reduce((acc, m) => Object.assign(acc, m), {})
-
-  return Object.assign(manifest, {
-    snapshots: manifest.snapshots || false,
-    permanence: manifest.permanence || false,
-    seek: manifest.seek || false,
-    clear: manifest.clear || false,
-    getMany: manifest.getMany || false,
-    keyIterator: manifest.keyIterator || false,
-    valueIterator: manifest.valueIterator || false,
-    iteratorNextv: manifest.iteratorNextv || false,
-    iteratorAll: manifest.iteratorAll || false,
-    status: manifest.status || false,
-    createIfMissing: manifest.createIfMissing || false,
-    errorIfExists: manifest.errorIfExists || false,
-    deferredOpen: manifest.deferredOpen || false,
-    promises: manifest.promises || false,
-    streams: manifest.streams || false,
-    encodings: Object.assign({}, manifest.encodings),
-    events: Object.assign({}, manifest.events),
-    additionalMethods: Object.assign({}, manifest.additionalMethods)
-  })
-}
-
-},{}],65:[function(require,module,exports){
-'use strict'
-
-const ModuleError = require('module-error')
-const encodings = require('./lib/encodings')
-const { Encoding } = require('./lib/encoding')
-const { BufferFormat, ViewFormat, UTF8Format } = require('./lib/formats')
-
-const kFormats = Symbol('formats')
-const kEncodings = Symbol('encodings')
-const validFormats = new Set(['buffer', 'view', 'utf8'])
-
-/** @template T */
-class Transcoder {
-  /**
-   * @param {Array<'buffer'|'view'|'utf8'>} formats
-   */
-  constructor (formats) {
-    if (!Array.isArray(formats)) {
-      throw new TypeError("The first argument 'formats' must be an array")
-    } else if (!formats.every(f => validFormats.has(f))) {
-      // Note: we only only support aliases in key- and valueEncoding options (where we already did)
-      throw new TypeError("Format must be one of 'buffer', 'view', 'utf8'")
-    }
-
-    /** @type {Map<string|MixedEncoding<any, any, any>, Encoding<any, any, any>>} */
-    this[kEncodings] = new Map()
-    this[kFormats] = new Set(formats)
-
-    // Register encodings (done early in order to populate encodings())
-    for (const k in encodings) {
-      try {
-        this.encoding(k)
-      } catch (err) {
-        /* istanbul ignore if: assertion */
-        if (err.code !== 'LEVEL_ENCODING_NOT_SUPPORTED') throw err
-      }
-    }
-  }
-
-  /**
-   * @returns {Array<Encoding<any,T,any>>}
-   */
-  encodings () {
-    return Array.from(new Set(this[kEncodings].values()))
-  }
-
-  /**
-   * @param {string|MixedEncoding<any, any, any>} encoding
-   * @returns {Encoding<any, T, any>}
-   */
-  encoding (encoding) {
-    let resolved = this[kEncodings].get(encoding)
-
-    if (resolved === undefined) {
-      if (typeof encoding === 'string' && encoding !== '') {
-        resolved = lookup[encoding]
-
-        if (!resolved) {
-          throw new ModuleError(`Encoding '${encoding}' is not found`, {
-            code: 'LEVEL_ENCODING_NOT_FOUND'
-          })
-        }
-      } else if (typeof encoding !== 'object' || encoding === null) {
-        throw new TypeError("First argument 'encoding' must be a string or object")
-      } else {
-        resolved = from(encoding)
-      }
-
-      const { name, format } = resolved
-
-      if (!this[kFormats].has(format)) {
-        if (this[kFormats].has('view')) {
-          resolved = resolved.createViewTranscoder()
-        } else if (this[kFormats].has('buffer')) {
-          resolved = resolved.createBufferTranscoder()
-        } else if (this[kFormats].has('utf8')) {
-          resolved = resolved.createUTF8Transcoder()
-        } else {
-          throw new ModuleError(`Encoding '${name}' cannot be transcoded`, {
-            code: 'LEVEL_ENCODING_NOT_SUPPORTED'
-          })
-        }
-      }
-
-      for (const k of [encoding, name, resolved.name, resolved.commonName]) {
-        this[kEncodings].set(k, resolved)
-      }
-    }
-
-    return resolved
-  }
-}
-
-exports.Transcoder = Transcoder
-
-/**
- * @param {MixedEncoding<any, any, any>} options
- * @returns {Encoding<any, any, any>}
- */
-function from (options) {
-  if (options instanceof Encoding) {
-    return options
-  }
-
-  // Loosely typed for ecosystem compatibility
-  const maybeType = 'type' in options && typeof options.type === 'string' ? options.type : undefined
-  const name = options.name || maybeType || `anonymous-${anonymousCount++}`
-
-  switch (detectFormat(options)) {
-    case 'view': return new ViewFormat({ ...options, name })
-    case 'utf8': return new UTF8Format({ ...options, name })
-    case 'buffer': return new BufferFormat({ ...options, name })
-    default: {
-      throw new TypeError("Format must be one of 'buffer', 'view', 'utf8'")
-    }
-  }
-}
-
-/**
- * If format is not provided, fallback to detecting `level-codec`
- * or `multiformats` encodings, else assume a format of buffer.
- * @param {MixedEncoding<any, any, any>} options
- * @returns {string}
- */
-function detectFormat (options) {
-  if ('format' in options && options.format !== undefined) {
-    return options.format
-  } else if ('buffer' in options && typeof options.buffer === 'boolean') {
-    return options.buffer ? 'buffer' : 'utf8' // level-codec
-  } else if ('code' in options && Number.isInteger(options.code)) {
-    return 'view' // multiformats
-  } else {
-    return 'buffer'
-  }
-}
-
-/**
- * @typedef {import('./lib/encoding').MixedEncoding<TIn,TFormat,TOut>} MixedEncoding
- * @template TIn, TFormat, TOut
- */
-
-/**
- * @type {Object.<string, Encoding<any, any, any>>}
- */
-const aliases = {
-  binary: encodings.buffer,
-  'utf-8': encodings.utf8
-}
-
-/**
- * @type {Object.<string, Encoding<any, any, any>>}
- */
-const lookup = {
-  ...encodings,
-  ...aliases
-}
-
-let anonymousCount = 0
-
-},{"./lib/encoding":66,"./lib/encodings":67,"./lib/formats":68,"module-error":72}],66:[function(require,module,exports){
-'use strict'
-
-const ModuleError = require('module-error')
-const formats = new Set(['buffer', 'view', 'utf8'])
-
-/**
- * @template TIn, TFormat, TOut
- * @abstract
- */
-class Encoding {
-  /**
-   * @param {IEncoding<TIn,TFormat,TOut>} options
-   */
-  constructor (options) {
-    /** @type {(data: TIn) => TFormat} */
-    this.encode = options.encode || this.encode
-
-    /** @type {(data: TFormat) => TOut} */
-    this.decode = options.decode || this.decode
-
-    /** @type {string} */
-    this.name = options.name || this.name
-
-    /** @type {string} */
-    this.format = options.format || this.format
-
-    if (typeof this.encode !== 'function') {
-      throw new TypeError("The 'encode' property must be a function")
-    }
-
-    if (typeof this.decode !== 'function') {
-      throw new TypeError("The 'decode' property must be a function")
-    }
-
-    this.encode = this.encode.bind(this)
-    this.decode = this.decode.bind(this)
-
-    if (typeof this.name !== 'string' || this.name === '') {
-      throw new TypeError("The 'name' property must be a string")
-    }
-
-    if (typeof this.format !== 'string' || !formats.has(this.format)) {
-      throw new TypeError("The 'format' property must be one of 'buffer', 'view', 'utf8'")
-    }
-
-    if (options.createViewTranscoder) {
-      this.createViewTranscoder = options.createViewTranscoder
-    }
-
-    if (options.createBufferTranscoder) {
-      this.createBufferTranscoder = options.createBufferTranscoder
-    }
-
-    if (options.createUTF8Transcoder) {
-      this.createUTF8Transcoder = options.createUTF8Transcoder
-    }
-  }
-
-  get commonName () {
-    return /** @type {string} */ (this.name.split('+')[0])
-  }
-
-  /** @return {BufferFormat<TIn,TOut>} */
-  createBufferTranscoder () {
-    throw new ModuleError(`Encoding '${this.name}' cannot be transcoded to 'buffer'`, {
-      code: 'LEVEL_ENCODING_NOT_SUPPORTED'
-    })
-  }
-
-  /** @return {ViewFormat<TIn,TOut>} */
-  createViewTranscoder () {
-    throw new ModuleError(`Encoding '${this.name}' cannot be transcoded to 'view'`, {
-      code: 'LEVEL_ENCODING_NOT_SUPPORTED'
-    })
-  }
-
-  /** @return {UTF8Format<TIn,TOut>} */
-  createUTF8Transcoder () {
-    throw new ModuleError(`Encoding '${this.name}' cannot be transcoded to 'utf8'`, {
-      code: 'LEVEL_ENCODING_NOT_SUPPORTED'
-    })
-  }
-}
-
-exports.Encoding = Encoding
-
-/**
- * @typedef {import('./encoding').IEncoding<TIn,TFormat,TOut>} IEncoding
- * @template TIn, TFormat, TOut
- */
-
-/**
- * @typedef {import('./formats').BufferFormat<TIn,TOut>} BufferFormat
- * @template TIn, TOut
- */
-
-/**
- * @typedef {import('./formats').ViewFormat<TIn,TOut>} ViewFormat
- * @template TIn, TOut
- */
-
-/**
- * @typedef {import('./formats').UTF8Format<TIn,TOut>} UTF8Format
- * @template TIn, TOut
- */
-
-},{"module-error":72}],67:[function(require,module,exports){
-'use strict'
-
-const { Buffer } = require('buffer') || { Buffer: { isBuffer: () => false } }
-const { textEncoder, textDecoder } = require('./text-endec')()
-const { BufferFormat, ViewFormat, UTF8Format } = require('./formats')
-
-/** @type {<T>(v: T) => v} */
-const identity = (v) => v
-
-/**
- * @type {typeof import('./encodings').utf8}
- */
-exports.utf8 = new UTF8Format({
-  encode: function (data) {
-    // On node 16.9.1 buffer.toString() is 5x faster than TextDecoder
-    return Buffer.isBuffer(data)
-      ? data.toString('utf8')
-      : ArrayBuffer.isView(data)
-        ? textDecoder.decode(data)
-        : String(data)
-  },
-  decode: identity,
-  name: 'utf8',
-  createViewTranscoder () {
-    return new ViewFormat({
-      encode: function (data) {
-        return ArrayBuffer.isView(data) ? data : textEncoder.encode(data)
-      },
-      decode: function (data) {
-        return textDecoder.decode(data)
-      },
-      name: `${this.name}+view`
-    })
-  },
-  createBufferTranscoder () {
-    return new BufferFormat({
-      encode: function (data) {
-        return Buffer.isBuffer(data)
-          ? data
-          : ArrayBuffer.isView(data)
-            ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
-            : Buffer.from(String(data), 'utf8')
-      },
-      decode: function (data) {
-        return data.toString('utf8')
-      },
-      name: `${this.name}+buffer`
-    })
-  }
-})
-
-/**
- * @type {typeof import('./encodings').json}
- */
-exports.json = new UTF8Format({
-  encode: JSON.stringify,
-  decode: JSON.parse,
-  name: 'json'
-})
-
-/**
- * @type {typeof import('./encodings').buffer}
- */
-exports.buffer = new BufferFormat({
-  encode: function (data) {
-    return Buffer.isBuffer(data)
-      ? data
-      : ArrayBuffer.isView(data)
-        ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
-        : Buffer.from(String(data), 'utf8')
-  },
-  decode: identity,
-  name: 'buffer',
-  createViewTranscoder () {
-    return new ViewFormat({
-      encode: function (data) {
-        return ArrayBuffer.isView(data) ? data : Buffer.from(String(data), 'utf8')
-      },
-      decode: function (data) {
-        return Buffer.from(data.buffer, data.byteOffset, data.byteLength)
-      },
-      name: `${this.name}+view`
-    })
-  }
-})
-
-/**
- * @type {typeof import('./encodings').view}
- */
-exports.view = new ViewFormat({
-  encode: function (data) {
-    return ArrayBuffer.isView(data) ? data : textEncoder.encode(data)
-  },
-  decode: identity,
-  name: 'view',
-  createBufferTranscoder () {
-    return new BufferFormat({
-      encode: function (data) {
-        return Buffer.isBuffer(data)
-          ? data
-          : ArrayBuffer.isView(data)
-            ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
-            : Buffer.from(String(data), 'utf8')
-      },
-      decode: identity,
-      name: `${this.name}+buffer`
-    })
-  }
-})
-
-/**
- * @type {typeof import('./encodings').hex}
- */
-exports.hex = new BufferFormat({
-  encode: function (data) {
-    return Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'hex')
-  },
-  decode: function (buffer) {
-    return buffer.toString('hex')
-  },
-  name: 'hex'
-})
-
-/**
- * @type {typeof import('./encodings').base64}
- */
-exports.base64 = new BufferFormat({
-  encode: function (data) {
-    return Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'base64')
-  },
-  decode: function (buffer) {
-    return buffer.toString('base64')
-  },
-  name: 'base64'
-})
-
-},{"./formats":68,"./text-endec":69,"buffer":24}],68:[function(require,module,exports){
-'use strict'
-
-const { Buffer } = require('buffer') || {}
-const { Encoding } = require('./encoding')
-const textEndec = require('./text-endec')
-
-/**
- * @template TIn, TOut
- * @extends {Encoding<TIn,Buffer,TOut>}
- */
-class BufferFormat extends Encoding {
-  /**
-   * @param {Omit<IEncoding<TIn, Buffer, TOut>, 'format'>} options
-   */
-  constructor (options) {
-    super({ ...options, format: 'buffer' })
-  }
-
-  /** @override */
-  createViewTranscoder () {
-    return new ViewFormat({
-      encode: this.encode, // Buffer is a view (UInt8Array)
-      decode: (data) => this.decode(
-        Buffer.from(data.buffer, data.byteOffset, data.byteLength)
-      ),
-      name: `${this.name}+view`
-    })
-  }
-
-  /** @override */
-  createBufferTranscoder () {
-    return this
-  }
-}
-
-/**
- * @extends {Encoding<TIn,Uint8Array,TOut>}
- * @template TIn, TOut
- */
-class ViewFormat extends Encoding {
-  /**
-   * @param {Omit<IEncoding<TIn, Uint8Array, TOut>, 'format'>} options
-   */
-  constructor (options) {
-    super({ ...options, format: 'view' })
-  }
-
-  /** @override */
-  createBufferTranscoder () {
-    return new BufferFormat({
-      encode: (data) => {
-        const view = this.encode(data)
-        return Buffer.from(view.buffer, view.byteOffset, view.byteLength)
-      },
-      decode: this.decode, // Buffer is a view (UInt8Array)
-      name: `${this.name}+buffer`
-    })
-  }
-
-  /** @override */
-  createViewTranscoder () {
-    return this
-  }
-}
-
-/**
- * @extends {Encoding<TIn,string,TOut>}
- * @template TIn, TOut
- */
-class UTF8Format extends Encoding {
-  /**
-   * @param {Omit<IEncoding<TIn, string, TOut>, 'format'>} options
-   */
-  constructor (options) {
-    super({ ...options, format: 'utf8' })
-  }
-
-  /** @override */
-  createBufferTranscoder () {
-    return new BufferFormat({
-      encode: (data) => Buffer.from(this.encode(data), 'utf8'),
-      decode: (data) => this.decode(data.toString('utf8')),
-      name: `${this.name}+buffer`
-    })
-  }
-
-  /** @override */
-  createViewTranscoder () {
-    const { textEncoder, textDecoder } = textEndec()
-
-    return new ViewFormat({
-      encode: (data) => textEncoder.encode(this.encode(data)),
-      decode: (data) => this.decode(textDecoder.decode(data)),
-      name: `${this.name}+view`
-    })
-  }
-
-  /** @override */
-  createUTF8Transcoder () {
-    return this
-  }
-}
-
-exports.BufferFormat = BufferFormat
-exports.ViewFormat = ViewFormat
-exports.UTF8Format = UTF8Format
-
-/**
- * @typedef {import('./encoding').IEncoding<TIn,TFormat,TOut>} IEncoding
- * @template TIn, TFormat, TOut
- */
-
-},{"./encoding":66,"./text-endec":69,"buffer":24}],69:[function(require,module,exports){
-'use strict'
-
-/** @type {{ textEncoder: TextEncoder, textDecoder: TextDecoder }|null} */
-let lazy = null
-
-/**
- * Get semi-global instances of TextEncoder and TextDecoder.
- * @returns {{ textEncoder: TextEncoder, textDecoder: TextDecoder }}
- */
-module.exports = function () {
-  if (lazy === null) {
-    lazy = {
-      textEncoder: new TextEncoder(),
-      textDecoder: new TextDecoder()
-    }
-  }
-
-  return lazy
-}
-
-},{}],70:[function(require,module,exports){
-exports.Level = require('browser-level').BrowserLevel
-
-},{"browser-level":17}],71:[function(require,module,exports){
+},{"which-typed-array":92}],38:[function(require,module,exports){
 /* MapLibre GL JS is licensed under the 3-Clause BSD License. Full text of license: https://github.com/maplibre/maplibre-gl-js/blob/v3.2.2/LICENSE.txt */
 (function (global, factory) {
 typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
@@ -25008,31 +20854,7 @@ return maplibregl$1;
 }));
 
 
-},{}],72:[function(require,module,exports){
-'use strict'
-
-module.exports = class ModuleError extends Error {
-  /**
-   * @param {string} message Error message
-   * @param {{ code?: string, cause?: Error, expected?: boolean, transient?: boolean }} [options]
-   */
-  constructor (message, options) {
-    super(message || '')
-
-    if (typeof options === 'object' && options !== null) {
-      if (options.code) this.code = String(options.code)
-      if (options.expected) this.expected = true
-      if (options.transient) this.transient = true
-      if (options.cause) this.cause = options.cause
-    }
-
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor)
-    }
-  }
-}
-
-},{}],73:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 assert.notEqual = notEqual
 assert.notOk = notOk
 assert.equal = equal
@@ -25056,7 +20878,7 @@ function assert (t, m) {
   if (!t) throw new Error(m || 'AssertionError')
 }
 
-},{}],74:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 var splice = require('remove-array-items')
 var nanotiming = require('nanotiming')
 var assert = require('assert')
@@ -25220,7 +21042,7 @@ Nanobus.prototype._emit = function (arr, eventName, data, uuid) {
   }
 }
 
-},{"assert":73,"nanotiming":92,"remove-array-items":113}],75:[function(require,module,exports){
+},{"assert":39,"nanotiming":58,"remove-array-items":77}],41:[function(require,module,exports){
 const document = require('global/document')
 const nanotiming = require('nanotiming')
 const morph = require('nanomorph')
@@ -25380,7 +21202,7 @@ Nanocomponent.prototype.update = function () {
   throw new Error('nanocomponent: update should be implemented!')
 }
 
-},{"assert":76,"global/document":48,"nanomorph":85,"nanotiming":92,"on-load":93}],76:[function(require,module,exports){
+},{"assert":42,"global/document":22,"nanomorph":51,"nanotiming":58,"on-load":59}],42:[function(require,module,exports){
 module.exports = assert
 
 class AssertionError extends Error {}
@@ -25400,7 +21222,7 @@ function assert (t, m) {
   }
 }
 
-},{}],77:[function(require,module,exports){
+},{}],43:[function(require,module,exports){
 var assert = require('assert')
 
 var safeExternalLink = /(noopener|noreferrer) (noopener|noreferrer)/
@@ -25445,7 +21267,7 @@ function href (cb, root) {
   })
 }
 
-},{"assert":73}],78:[function(require,module,exports){
+},{"assert":39}],44:[function(require,module,exports){
 'use strict'
 
 var trailingNewlineRegex = /\n[\s]+$/
@@ -25579,7 +21401,7 @@ module.exports = function appendChild (el, childs) {
   }
 }
 
-},{}],79:[function(require,module,exports){
+},{}],45:[function(require,module,exports){
 'use strict'
 
 module.exports = [
@@ -25589,17 +21411,17 @@ module.exports = [
   'readonly', 'required', 'reversed', 'selected'
 ]
 
-},{}],80:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 module.exports = require('./dom')(document)
 
-},{"./dom":82}],81:[function(require,module,exports){
+},{"./dom":48}],47:[function(require,module,exports){
 'use strict'
 
 module.exports = [
   'indeterminate'
 ]
 
-},{}],82:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
 'use strict'
 
 var hyperx = require('hyperx')
@@ -25717,7 +21539,7 @@ module.exports = function (document) {
   return exports
 }
 
-},{"./append-child":78,"./bool-props":79,"./direct-props":81,"./svg-tags":83,"hyperx":57}],83:[function(require,module,exports){
+},{"./append-child":44,"./bool-props":45,"./direct-props":47,"./svg-tags":49,"hyperx":31}],49:[function(require,module,exports){
 'use strict'
 
 module.exports = [
@@ -25737,7 +21559,7 @@ module.exports = [
   'tspan', 'use', 'view', 'vkern'
 ]
 
-},{}],84:[function(require,module,exports){
+},{}],50:[function(require,module,exports){
 module.exports = LRU
 
 function LRU (opts) {
@@ -25875,7 +21697,7 @@ LRU.prototype.evict = function () {
   this.remove(this.tail)
 }
 
-},{}],85:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 var assert = require('nanoassert')
 var morph = require('./lib/morph')
 
@@ -26040,7 +21862,7 @@ function same (a, b) {
   return false
 }
 
-},{"./lib/morph":87,"nanoassert":73}],86:[function(require,module,exports){
+},{"./lib/morph":53,"nanoassert":39}],52:[function(require,module,exports){
 module.exports = [
   // attribute events (can be set with attributes)
   'onclick',
@@ -26087,7 +21909,7 @@ module.exports = [
   'onfocusout'
 ]
 
-},{}],87:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 var events = require('./events')
 var eventsLength = events.length
 
@@ -26262,7 +22084,7 @@ function updateAttribute (newNode, oldNode, name) {
   }
 }
 
-},{"./events":86}],88:[function(require,module,exports){
+},{"./events":52}],54:[function(require,module,exports){
 var reg = /([^?=&]+)(=([^&]*))?/g
 var assert = require('assert')
 
@@ -26286,7 +22108,7 @@ function qs (url) {
   return obj
 }
 
-},{"assert":73}],89:[function(require,module,exports){
+},{"assert":39}],55:[function(require,module,exports){
 'use strict'
 
 var assert = require('assert')
@@ -26323,7 +22145,7 @@ function nanoraf (render, raf) {
   }
 }
 
-},{"assert":73}],90:[function(require,module,exports){
+},{"assert":39}],56:[function(require,module,exports){
 var assert = require('assert')
 var wayfarer = require('wayfarer')
 
@@ -26379,7 +22201,7 @@ function pathname (routename, isElectron) {
   return decodeURI(routename.replace(suffix, '').replace(normalize, '/'))
 }
 
-},{"assert":73,"wayfarer":131}],91:[function(require,module,exports){
+},{"assert":39,"wayfarer":90}],57:[function(require,module,exports){
 var assert = require('assert')
 
 var hasWindow = typeof window !== 'undefined'
@@ -26436,7 +22258,7 @@ NanoScheduler.prototype.setTimeout = function (cb) {
 
 module.exports = createScheduler
 
-},{"assert":73}],92:[function(require,module,exports){
+},{"assert":39}],58:[function(require,module,exports){
 var scheduler = require('nanoscheduler')()
 var assert = require('assert')
 
@@ -26486,7 +22308,7 @@ function noop (cb) {
   }
 }
 
-},{"assert":73,"nanoscheduler":91}],93:[function(require,module,exports){
+},{"assert":39,"nanoscheduler":57}],59:[function(require,module,exports){
 /* global MutationObserver */
 var document = require('global/document')
 var window = require('global/window')
@@ -26583,15 +22405,7 @@ function eachMutation (nodes, fn) {
   }
 }
 
-},{"global/document":48,"global/window":49}],94:[function(require,module,exports){
-/* @license
-Papa Parse
-v5.4.1
-https://github.com/mholt/PapaParse
-License: MIT
-*/
-!function(e,t){"function"==typeof define&&define.amd?define([],t):"object"==typeof module&&"undefined"!=typeof exports?module.exports=t():e.Papa=t()}(this,function s(){"use strict";var f="undefined"!=typeof self?self:"undefined"!=typeof window?window:void 0!==f?f:{};var n=!f.document&&!!f.postMessage,o=f.IS_PAPA_WORKER||!1,a={},u=0,b={parse:function(e,t){var r=(t=t||{}).dynamicTyping||!1;J(r)&&(t.dynamicTypingFunction=r,r={});if(t.dynamicTyping=r,t.transform=!!J(t.transform)&&t.transform,t.worker&&b.WORKERS_SUPPORTED){var i=function(){if(!b.WORKERS_SUPPORTED)return!1;var e=(r=f.URL||f.webkitURL||null,i=s.toString(),b.BLOB_URL||(b.BLOB_URL=r.createObjectURL(new Blob(["var global = (function() { if (typeof self !== 'undefined') { return self; } if (typeof window !== 'undefined') { return window; } if (typeof global !== 'undefined') { return global; } return {}; })(); global.IS_PAPA_WORKER=true; ","(",i,")();"],{type:"text/javascript"})))),t=new f.Worker(e);var r,i;return t.onmessage=_,t.id=u++,a[t.id]=t}();return i.userStep=t.step,i.userChunk=t.chunk,i.userComplete=t.complete,i.userError=t.error,t.step=J(t.step),t.chunk=J(t.chunk),t.complete=J(t.complete),t.error=J(t.error),delete t.worker,void i.postMessage({input:e,config:t,workerId:i.id})}var n=null;b.NODE_STREAM_INPUT,"string"==typeof e?(e=function(e){if(65279===e.charCodeAt(0))return e.slice(1);return e}(e),n=t.download?new l(t):new p(t)):!0===e.readable&&J(e.read)&&J(e.on)?n=new g(t):(f.File&&e instanceof File||e instanceof Object)&&(n=new c(t));return n.stream(e)},unparse:function(e,t){var n=!1,_=!0,m=",",y="\r\n",s='"',a=s+s,r=!1,i=null,o=!1;!function(){if("object"!=typeof t)return;"string"!=typeof t.delimiter||b.BAD_DELIMITERS.filter(function(e){return-1!==t.delimiter.indexOf(e)}).length||(m=t.delimiter);("boolean"==typeof t.quotes||"function"==typeof t.quotes||Array.isArray(t.quotes))&&(n=t.quotes);"boolean"!=typeof t.skipEmptyLines&&"string"!=typeof t.skipEmptyLines||(r=t.skipEmptyLines);"string"==typeof t.newline&&(y=t.newline);"string"==typeof t.quoteChar&&(s=t.quoteChar);"boolean"==typeof t.header&&(_=t.header);if(Array.isArray(t.columns)){if(0===t.columns.length)throw new Error("Option columns is empty");i=t.columns}void 0!==t.escapeChar&&(a=t.escapeChar+s);("boolean"==typeof t.escapeFormulae||t.escapeFormulae instanceof RegExp)&&(o=t.escapeFormulae instanceof RegExp?t.escapeFormulae:/^[=+\-@\t\r].*$/)}();var u=new RegExp(Q(s),"g");"string"==typeof e&&(e=JSON.parse(e));if(Array.isArray(e)){if(!e.length||Array.isArray(e[0]))return h(null,e,r);if("object"==typeof e[0])return h(i||Object.keys(e[0]),e,r)}else if("object"==typeof e)return"string"==typeof e.data&&(e.data=JSON.parse(e.data)),Array.isArray(e.data)&&(e.fields||(e.fields=e.meta&&e.meta.fields||i),e.fields||(e.fields=Array.isArray(e.data[0])?e.fields:"object"==typeof e.data[0]?Object.keys(e.data[0]):[]),Array.isArray(e.data[0])||"object"==typeof e.data[0]||(e.data=[e.data])),h(e.fields||[],e.data||[],r);throw new Error("Unable to serialize unrecognized input");function h(e,t,r){var i="";"string"==typeof e&&(e=JSON.parse(e)),"string"==typeof t&&(t=JSON.parse(t));var n=Array.isArray(e)&&0<e.length,s=!Array.isArray(t[0]);if(n&&_){for(var a=0;a<e.length;a++)0<a&&(i+=m),i+=v(e[a],a);0<t.length&&(i+=y)}for(var o=0;o<t.length;o++){var u=n?e.length:t[o].length,h=!1,f=n?0===Object.keys(t[o]).length:0===t[o].length;if(r&&!n&&(h="greedy"===r?""===t[o].join("").trim():1===t[o].length&&0===t[o][0].length),"greedy"===r&&n){for(var d=[],l=0;l<u;l++){var c=s?e[l]:l;d.push(t[o][c])}h=""===d.join("").trim()}if(!h){for(var p=0;p<u;p++){0<p&&!f&&(i+=m);var g=n&&s?e[p]:p;i+=v(t[o][g],p)}o<t.length-1&&(!r||0<u&&!f)&&(i+=y)}}return i}function v(e,t){if(null==e)return"";if(e.constructor===Date)return JSON.stringify(e).slice(1,25);var r=!1;o&&"string"==typeof e&&o.test(e)&&(e="'"+e,r=!0);var i=e.toString().replace(u,a);return(r=r||!0===n||"function"==typeof n&&n(e,t)||Array.isArray(n)&&n[t]||function(e,t){for(var r=0;r<t.length;r++)if(-1<e.indexOf(t[r]))return!0;return!1}(i,b.BAD_DELIMITERS)||-1<i.indexOf(m)||" "===i.charAt(0)||" "===i.charAt(i.length-1))?s+i+s:i}}};if(b.RECORD_SEP=String.fromCharCode(30),b.UNIT_SEP=String.fromCharCode(31),b.BYTE_ORDER_MARK="\ufeff",b.BAD_DELIMITERS=["\r","\n",'"',b.BYTE_ORDER_MARK],b.WORKERS_SUPPORTED=!n&&!!f.Worker,b.NODE_STREAM_INPUT=1,b.LocalChunkSize=10485760,b.RemoteChunkSize=5242880,b.DefaultDelimiter=",",b.Parser=E,b.ParserHandle=r,b.NetworkStreamer=l,b.FileStreamer=c,b.StringStreamer=p,b.ReadableStreamStreamer=g,f.jQuery){var d=f.jQuery;d.fn.parse=function(o){var r=o.config||{},u=[];return this.each(function(e){if(!("INPUT"===d(this).prop("tagName").toUpperCase()&&"file"===d(this).attr("type").toLowerCase()&&f.FileReader)||!this.files||0===this.files.length)return!0;for(var t=0;t<this.files.length;t++)u.push({file:this.files[t],inputElem:this,instanceConfig:d.extend({},r)})}),e(),this;function e(){if(0!==u.length){var e,t,r,i,n=u[0];if(J(o.before)){var s=o.before(n.file,n.inputElem);if("object"==typeof s){if("abort"===s.action)return e="AbortError",t=n.file,r=n.inputElem,i=s.reason,void(J(o.error)&&o.error({name:e},t,r,i));if("skip"===s.action)return void h();"object"==typeof s.config&&(n.instanceConfig=d.extend(n.instanceConfig,s.config))}else if("skip"===s)return void h()}var a=n.instanceConfig.complete;n.instanceConfig.complete=function(e){J(a)&&a(e,n.file,n.inputElem),h()},b.parse(n.file,n.instanceConfig)}else J(o.complete)&&o.complete()}function h(){u.splice(0,1),e()}}}function h(e){this._handle=null,this._finished=!1,this._completed=!1,this._halted=!1,this._input=null,this._baseIndex=0,this._partialLine="",this._rowCount=0,this._start=0,this._nextChunk=null,this.isFirstChunk=!0,this._completeResults={data:[],errors:[],meta:{}},function(e){var t=w(e);t.chunkSize=parseInt(t.chunkSize),e.step||e.chunk||(t.chunkSize=null);this._handle=new r(t),(this._handle.streamer=this)._config=t}.call(this,e),this.parseChunk=function(e,t){if(this.isFirstChunk&&J(this._config.beforeFirstChunk)){var r=this._config.beforeFirstChunk(e);void 0!==r&&(e=r)}this.isFirstChunk=!1,this._halted=!1;var i=this._partialLine+e;this._partialLine="";var n=this._handle.parse(i,this._baseIndex,!this._finished);if(!this._handle.paused()&&!this._handle.aborted()){var s=n.meta.cursor;this._finished||(this._partialLine=i.substring(s-this._baseIndex),this._baseIndex=s),n&&n.data&&(this._rowCount+=n.data.length);var a=this._finished||this._config.preview&&this._rowCount>=this._config.preview;if(o)f.postMessage({results:n,workerId:b.WORKER_ID,finished:a});else if(J(this._config.chunk)&&!t){if(this._config.chunk(n,this._handle),this._handle.paused()||this._handle.aborted())return void(this._halted=!0);n=void 0,this._completeResults=void 0}return this._config.step||this._config.chunk||(this._completeResults.data=this._completeResults.data.concat(n.data),this._completeResults.errors=this._completeResults.errors.concat(n.errors),this._completeResults.meta=n.meta),this._completed||!a||!J(this._config.complete)||n&&n.meta.aborted||(this._config.complete(this._completeResults,this._input),this._completed=!0),a||n&&n.meta.paused||this._nextChunk(),n}this._halted=!0},this._sendError=function(e){J(this._config.error)?this._config.error(e):o&&this._config.error&&f.postMessage({workerId:b.WORKER_ID,error:e,finished:!1})}}function l(e){var i;(e=e||{}).chunkSize||(e.chunkSize=b.RemoteChunkSize),h.call(this,e),this._nextChunk=n?function(){this._readChunk(),this._chunkLoaded()}:function(){this._readChunk()},this.stream=function(e){this._input=e,this._nextChunk()},this._readChunk=function(){if(this._finished)this._chunkLoaded();else{if(i=new XMLHttpRequest,this._config.withCredentials&&(i.withCredentials=this._config.withCredentials),n||(i.onload=v(this._chunkLoaded,this),i.onerror=v(this._chunkError,this)),i.open(this._config.downloadRequestBody?"POST":"GET",this._input,!n),this._config.downloadRequestHeaders){var e=this._config.downloadRequestHeaders;for(var t in e)i.setRequestHeader(t,e[t])}if(this._config.chunkSize){var r=this._start+this._config.chunkSize-1;i.setRequestHeader("Range","bytes="+this._start+"-"+r)}try{i.send(this._config.downloadRequestBody)}catch(e){this._chunkError(e.message)}n&&0===i.status&&this._chunkError()}},this._chunkLoaded=function(){4===i.readyState&&(i.status<200||400<=i.status?this._chunkError():(this._start+=this._config.chunkSize?this._config.chunkSize:i.responseText.length,this._finished=!this._config.chunkSize||this._start>=function(e){var t=e.getResponseHeader("Content-Range");if(null===t)return-1;return parseInt(t.substring(t.lastIndexOf("/")+1))}(i),this.parseChunk(i.responseText)))},this._chunkError=function(e){var t=i.statusText||e;this._sendError(new Error(t))}}function c(e){var i,n;(e=e||{}).chunkSize||(e.chunkSize=b.LocalChunkSize),h.call(this,e);var s="undefined"!=typeof FileReader;this.stream=function(e){this._input=e,n=e.slice||e.webkitSlice||e.mozSlice,s?((i=new FileReader).onload=v(this._chunkLoaded,this),i.onerror=v(this._chunkError,this)):i=new FileReaderSync,this._nextChunk()},this._nextChunk=function(){this._finished||this._config.preview&&!(this._rowCount<this._config.preview)||this._readChunk()},this._readChunk=function(){var e=this._input;if(this._config.chunkSize){var t=Math.min(this._start+this._config.chunkSize,this._input.size);e=n.call(e,this._start,t)}var r=i.readAsText(e,this._config.encoding);s||this._chunkLoaded({target:{result:r}})},this._chunkLoaded=function(e){this._start+=this._config.chunkSize,this._finished=!this._config.chunkSize||this._start>=this._input.size,this.parseChunk(e.target.result)},this._chunkError=function(){this._sendError(i.error)}}function p(e){var r;h.call(this,e=e||{}),this.stream=function(e){return r=e,this._nextChunk()},this._nextChunk=function(){if(!this._finished){var e,t=this._config.chunkSize;return t?(e=r.substring(0,t),r=r.substring(t)):(e=r,r=""),this._finished=!r,this.parseChunk(e)}}}function g(e){h.call(this,e=e||{});var t=[],r=!0,i=!1;this.pause=function(){h.prototype.pause.apply(this,arguments),this._input.pause()},this.resume=function(){h.prototype.resume.apply(this,arguments),this._input.resume()},this.stream=function(e){this._input=e,this._input.on("data",this._streamData),this._input.on("end",this._streamEnd),this._input.on("error",this._streamError)},this._checkIsFinished=function(){i&&1===t.length&&(this._finished=!0)},this._nextChunk=function(){this._checkIsFinished(),t.length?this.parseChunk(t.shift()):r=!0},this._streamData=v(function(e){try{t.push("string"==typeof e?e:e.toString(this._config.encoding)),r&&(r=!1,this._checkIsFinished(),this.parseChunk(t.shift()))}catch(e){this._streamError(e)}},this),this._streamError=v(function(e){this._streamCleanUp(),this._sendError(e)},this),this._streamEnd=v(function(){this._streamCleanUp(),i=!0,this._streamData("")},this),this._streamCleanUp=v(function(){this._input.removeListener("data",this._streamData),this._input.removeListener("end",this._streamEnd),this._input.removeListener("error",this._streamError)},this)}function r(m){var a,o,u,i=Math.pow(2,53),n=-i,s=/^\s*-?(\d+\.?|\.\d+|\d+\.\d+)([eE][-+]?\d+)?\s*$/,h=/^((\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d\.\d+([+-][0-2]\d:[0-5]\d|Z))|(\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d([+-][0-2]\d:[0-5]\d|Z))|(\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d([+-][0-2]\d:[0-5]\d|Z)))$/,t=this,r=0,f=0,d=!1,e=!1,l=[],c={data:[],errors:[],meta:{}};if(J(m.step)){var p=m.step;m.step=function(e){if(c=e,_())g();else{if(g(),0===c.data.length)return;r+=e.data.length,m.preview&&r>m.preview?o.abort():(c.data=c.data[0],p(c,t))}}}function y(e){return"greedy"===m.skipEmptyLines?""===e.join("").trim():1===e.length&&0===e[0].length}function g(){return c&&u&&(k("Delimiter","UndetectableDelimiter","Unable to auto-detect delimiting character; defaulted to '"+b.DefaultDelimiter+"'"),u=!1),m.skipEmptyLines&&(c.data=c.data.filter(function(e){return!y(e)})),_()&&function(){if(!c)return;function e(e,t){J(m.transformHeader)&&(e=m.transformHeader(e,t)),l.push(e)}if(Array.isArray(c.data[0])){for(var t=0;_()&&t<c.data.length;t++)c.data[t].forEach(e);c.data.splice(0,1)}else c.data.forEach(e)}(),function(){if(!c||!m.header&&!m.dynamicTyping&&!m.transform)return c;function e(e,t){var r,i=m.header?{}:[];for(r=0;r<e.length;r++){var n=r,s=e[r];m.header&&(n=r>=l.length?"__parsed_extra":l[r]),m.transform&&(s=m.transform(s,n)),s=v(n,s),"__parsed_extra"===n?(i[n]=i[n]||[],i[n].push(s)):i[n]=s}return m.header&&(r>l.length?k("FieldMismatch","TooManyFields","Too many fields: expected "+l.length+" fields but parsed "+r,f+t):r<l.length&&k("FieldMismatch","TooFewFields","Too few fields: expected "+l.length+" fields but parsed "+r,f+t)),i}var t=1;!c.data.length||Array.isArray(c.data[0])?(c.data=c.data.map(e),t=c.data.length):c.data=e(c.data,0);m.header&&c.meta&&(c.meta.fields=l);return f+=t,c}()}function _(){return m.header&&0===l.length}function v(e,t){return r=e,m.dynamicTypingFunction&&void 0===m.dynamicTyping[r]&&(m.dynamicTyping[r]=m.dynamicTypingFunction(r)),!0===(m.dynamicTyping[r]||m.dynamicTyping)?"true"===t||"TRUE"===t||"false"!==t&&"FALSE"!==t&&(function(e){if(s.test(e)){var t=parseFloat(e);if(n<t&&t<i)return!0}return!1}(t)?parseFloat(t):h.test(t)?new Date(t):""===t?null:t):t;var r}function k(e,t,r,i){var n={type:e,code:t,message:r};void 0!==i&&(n.row=i),c.errors.push(n)}this.parse=function(e,t,r){var i=m.quoteChar||'"';if(m.newline||(m.newline=function(e,t){e=e.substring(0,1048576);var r=new RegExp(Q(t)+"([^]*?)"+Q(t),"gm"),i=(e=e.replace(r,"")).split("\r"),n=e.split("\n"),s=1<n.length&&n[0].length<i[0].length;if(1===i.length||s)return"\n";for(var a=0,o=0;o<i.length;o++)"\n"===i[o][0]&&a++;return a>=i.length/2?"\r\n":"\r"}(e,i)),u=!1,m.delimiter)J(m.delimiter)&&(m.delimiter=m.delimiter(e),c.meta.delimiter=m.delimiter);else{var n=function(e,t,r,i,n){var s,a,o,u;n=n||[",","\t","|",";",b.RECORD_SEP,b.UNIT_SEP];for(var h=0;h<n.length;h++){var f=n[h],d=0,l=0,c=0;o=void 0;for(var p=new E({comments:i,delimiter:f,newline:t,preview:10}).parse(e),g=0;g<p.data.length;g++)if(r&&y(p.data[g]))c++;else{var _=p.data[g].length;l+=_,void 0!==o?0<_&&(d+=Math.abs(_-o),o=_):o=_}0<p.data.length&&(l/=p.data.length-c),(void 0===a||d<=a)&&(void 0===u||u<l)&&1.99<l&&(a=d,s=f,u=l)}return{successful:!!(m.delimiter=s),bestDelimiter:s}}(e,m.newline,m.skipEmptyLines,m.comments,m.delimitersToGuess);n.successful?m.delimiter=n.bestDelimiter:(u=!0,m.delimiter=b.DefaultDelimiter),c.meta.delimiter=m.delimiter}var s=w(m);return m.preview&&m.header&&s.preview++,a=e,o=new E(s),c=o.parse(a,t,r),g(),d?{meta:{paused:!0}}:c||{meta:{paused:!1}}},this.paused=function(){return d},this.pause=function(){d=!0,o.abort(),a=J(m.chunk)?"":a.substring(o.getCharIndex())},this.resume=function(){t.streamer._halted?(d=!1,t.streamer.parseChunk(a,!0)):setTimeout(t.resume,3)},this.aborted=function(){return e},this.abort=function(){e=!0,o.abort(),c.meta.aborted=!0,J(m.complete)&&m.complete(c),a=""}}function Q(e){return e.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}function E(j){var z,M=(j=j||{}).delimiter,P=j.newline,U=j.comments,q=j.step,N=j.preview,B=j.fastMode,K=z=void 0===j.quoteChar||null===j.quoteChar?'"':j.quoteChar;if(void 0!==j.escapeChar&&(K=j.escapeChar),("string"!=typeof M||-1<b.BAD_DELIMITERS.indexOf(M))&&(M=","),U===M)throw new Error("Comment character same as delimiter");!0===U?U="#":("string"!=typeof U||-1<b.BAD_DELIMITERS.indexOf(U))&&(U=!1),"\n"!==P&&"\r"!==P&&"\r\n"!==P&&(P="\n");var W=0,H=!1;this.parse=function(i,t,r){if("string"!=typeof i)throw new Error("Input must be a string");var n=i.length,e=M.length,s=P.length,a=U.length,o=J(q),u=[],h=[],f=[],d=W=0;if(!i)return L();if(j.header&&!t){var l=i.split(P)[0].split(M),c=[],p={},g=!1;for(var _ in l){var m=l[_];J(j.transformHeader)&&(m=j.transformHeader(m,_));var y=m,v=p[m]||0;for(0<v&&(g=!0,y=m+"_"+v),p[m]=v+1;c.includes(y);)y=y+"_"+v;c.push(y)}if(g){var k=i.split(P);k[0]=c.join(M),i=k.join(P)}}if(B||!1!==B&&-1===i.indexOf(z)){for(var b=i.split(P),E=0;E<b.length;E++){if(f=b[E],W+=f.length,E!==b.length-1)W+=P.length;else if(r)return L();if(!U||f.substring(0,a)!==U){if(o){if(u=[],I(f.split(M)),F(),H)return L()}else I(f.split(M));if(N&&N<=E)return u=u.slice(0,N),L(!0)}}return L()}for(var w=i.indexOf(M,W),R=i.indexOf(P,W),C=new RegExp(Q(K)+Q(z),"g"),S=i.indexOf(z,W);;)if(i[W]!==z)if(U&&0===f.length&&i.substring(W,W+a)===U){if(-1===R)return L();W=R+s,R=i.indexOf(P,W),w=i.indexOf(M,W)}else if(-1!==w&&(w<R||-1===R))f.push(i.substring(W,w)),W=w+e,w=i.indexOf(M,W);else{if(-1===R)break;if(f.push(i.substring(W,R)),D(R+s),o&&(F(),H))return L();if(N&&u.length>=N)return L(!0)}else for(S=W,W++;;){if(-1===(S=i.indexOf(z,S+1)))return r||h.push({type:"Quotes",code:"MissingQuotes",message:"Quoted field unterminated",row:u.length,index:W}),T();if(S===n-1)return T(i.substring(W,S).replace(C,z));if(z!==K||i[S+1]!==K){if(z===K||0===S||i[S-1]!==K){-1!==w&&w<S+1&&(w=i.indexOf(M,S+1)),-1!==R&&R<S+1&&(R=i.indexOf(P,S+1));var O=A(-1===R?w:Math.min(w,R));if(i.substr(S+1+O,e)===M){f.push(i.substring(W,S).replace(C,z)),i[W=S+1+O+e]!==z&&(S=i.indexOf(z,W)),w=i.indexOf(M,W),R=i.indexOf(P,W);break}var x=A(R);if(i.substring(S+1+x,S+1+x+s)===P){if(f.push(i.substring(W,S).replace(C,z)),D(S+1+x+s),w=i.indexOf(M,W),S=i.indexOf(z,W),o&&(F(),H))return L();if(N&&u.length>=N)return L(!0);break}h.push({type:"Quotes",code:"InvalidQuotes",message:"Trailing quote on quoted field is malformed",row:u.length,index:W}),S++}}else S++}return T();function I(e){u.push(e),d=W}function A(e){var t=0;if(-1!==e){var r=i.substring(S+1,e);r&&""===r.trim()&&(t=r.length)}return t}function T(e){return r||(void 0===e&&(e=i.substring(W)),f.push(e),W=n,I(f),o&&F()),L()}function D(e){W=e,I(f),f=[],R=i.indexOf(P,W)}function L(e){return{data:u,errors:h,meta:{delimiter:M,linebreak:P,aborted:H,truncated:!!e,cursor:d+(t||0)}}}function F(){q(L()),u=[],h=[]}},this.abort=function(){H=!0},this.getCharIndex=function(){return W}}function _(e){var t=e.data,r=a[t.workerId],i=!1;if(t.error)r.userError(t.error,t.file);else if(t.results&&t.results.data){var n={abort:function(){i=!0,m(t.workerId,{data:[],errors:[],meta:{aborted:!0}})},pause:y,resume:y};if(J(r.userStep)){for(var s=0;s<t.results.data.length&&(r.userStep({data:t.results.data[s],errors:t.results.errors,meta:t.results.meta},n),!i);s++);delete t.results}else J(r.userChunk)&&(r.userChunk(t.results,n,t.file),delete t.results)}t.finished&&!i&&m(t.workerId,t.results)}function m(e,t){var r=a[e];J(r.userComplete)&&r.userComplete(t),r.terminate(),delete a[e]}function y(){throw new Error("Not implemented.")}function w(e){if("object"!=typeof e||null===e)return e;var t=Array.isArray(e)?[]:{};for(var r in e)t[r]=w(e[r]);return t}function v(e,t){return function(){e.apply(t,arguments)}}function J(e){return"function"==typeof e}return o&&(f.onmessage=function(e){var t=e.data;void 0===b.WORKER_ID&&t&&(b.WORKER_ID=t.workerId);if("string"==typeof t.input)f.postMessage({workerId:b.WORKER_ID,results:b.parse(t.input,t.config),finished:!0});else if(f.File&&t.input instanceof File||t.input instanceof Object){var r=b.parse(t.input,t.config);r&&f.postMessage({workerId:b.WORKER_ID,results:r,finished:!0})}}),(l.prototype=Object.create(h.prototype)).constructor=l,(c.prototype=Object.create(h.prototype)).constructor=c,(p.prototype=Object.create(p.prototype)).constructor=p,(g.prototype=Object.create(h.prototype)).constructor=g,b});
-},{}],95:[function(require,module,exports){
+},{"global/document":22,"global/window":23}],60:[function(require,module,exports){
 (function (process){(function (){
 // 'path' module extracted from Node.js v8.11.1 (only the posix part)
 // transplited with Babel
@@ -27124,7 +22938,7 @@ posix.posix = posix;
 module.exports = posix;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":97}],96:[function(require,module,exports){
+},{"_process":62}],61:[function(require,module,exports){
 "use strict";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -28686,7 +24500,7 @@ var PMTiles = class {
   }
 };
 
-},{}],97:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -28872,20 +24686,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],98:[function(require,module,exports){
-(function (global){(function (){
-/*! queue-microtask. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
-let promise
-
-module.exports = typeof queueMicrotask === 'function'
-  ? queueMicrotask.bind(typeof window !== 'undefined' ? window : global)
-  // reuse resolved promise, and allocate it lazily
-  : cb => (promise || (promise = Promise.resolve()))
-    .then(cb)
-    .catch(err => setTimeout(() => { throw err }, 0))
-
-}).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],99:[function(require,module,exports){
+},{}],63:[function(require,module,exports){
 'use strict';
 
 function _inheritsLoose(subClass, superClass) { subClass.prototype = Object.create(superClass.prototype); subClass.prototype.constructor = subClass; subClass.__proto__ = superClass; }
@@ -29014,7 +24815,7 @@ createErrorType('ERR_UNKNOWN_ENCODING', function (arg) {
 createErrorType('ERR_STREAM_UNSHIFT_AFTER_END_EVENT', 'stream.unshift() after end event');
 module.exports.codes = codes;
 
-},{}],100:[function(require,module,exports){
+},{}],64:[function(require,module,exports){
 (function (process){(function (){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -29143,7 +24944,7 @@ Object.defineProperty(Duplex.prototype, 'destroyed', {
   }
 });
 }).call(this)}).call(this,require('_process'))
-},{"./_stream_readable":102,"./_stream_writable":104,"_process":97,"inherits":59}],101:[function(require,module,exports){
+},{"./_stream_readable":66,"./_stream_writable":68,"_process":62,"inherits":33}],65:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -29181,7 +24982,7 @@ function PassThrough(options) {
 PassThrough.prototype._transform = function (chunk, encoding, cb) {
   cb(null, chunk);
 };
-},{"./_stream_transform":103,"inherits":59}],102:[function(require,module,exports){
+},{"./_stream_transform":67,"inherits":33}],66:[function(require,module,exports){
 (function (process,global){(function (){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -30211,7 +26012,7 @@ function indexOf(xs, x) {
   return -1;
 }
 }).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../errors":99,"./_stream_duplex":100,"./internal/streams/async_iterator":105,"./internal/streams/buffer_list":106,"./internal/streams/destroy":107,"./internal/streams/from":109,"./internal/streams/state":111,"./internal/streams/stream":112,"_process":97,"buffer":24,"events":43,"inherits":59,"string_decoder/":118,"util":22}],103:[function(require,module,exports){
+},{"../errors":63,"./_stream_duplex":64,"./internal/streams/async_iterator":69,"./internal/streams/buffer_list":70,"./internal/streams/destroy":71,"./internal/streams/from":73,"./internal/streams/state":75,"./internal/streams/stream":76,"_process":62,"buffer":7,"events":17,"inherits":33,"string_decoder/":81,"util":5}],67:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -30402,7 +26203,7 @@ function done(stream, er, data) {
   if (stream._transformState.transforming) throw new ERR_TRANSFORM_ALREADY_TRANSFORMING();
   return stream.push(null);
 }
-},{"../errors":99,"./_stream_duplex":100,"inherits":59}],104:[function(require,module,exports){
+},{"../errors":63,"./_stream_duplex":64,"inherits":33}],68:[function(require,module,exports){
 (function (process,global){(function (){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -31046,7 +26847,7 @@ Writable.prototype._destroy = function (err, cb) {
   cb(err);
 };
 }).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../errors":99,"./_stream_duplex":100,"./internal/streams/destroy":107,"./internal/streams/state":111,"./internal/streams/stream":112,"_process":97,"buffer":24,"inherits":59,"util-deprecate":127}],105:[function(require,module,exports){
+},{"../errors":63,"./_stream_duplex":64,"./internal/streams/destroy":71,"./internal/streams/state":75,"./internal/streams/stream":76,"_process":62,"buffer":7,"inherits":33,"util-deprecate":86}],69:[function(require,module,exports){
 (function (process){(function (){
 'use strict';
 
@@ -31229,7 +27030,7 @@ var createReadableStreamAsyncIterator = function createReadableStreamAsyncIterat
 };
 module.exports = createReadableStreamAsyncIterator;
 }).call(this)}).call(this,require('_process'))
-},{"./end-of-stream":108,"_process":97}],106:[function(require,module,exports){
+},{"./end-of-stream":72,"_process":62}],70:[function(require,module,exports){
 'use strict';
 
 function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); enumerableOnly && (symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; })), keys.push.apply(keys, symbols); } return keys; }
@@ -31413,7 +27214,7 @@ module.exports = /*#__PURE__*/function () {
   }]);
   return BufferList;
 }();
-},{"buffer":24,"util":22}],107:[function(require,module,exports){
+},{"buffer":7,"util":5}],71:[function(require,module,exports){
 (function (process){(function (){
 'use strict';
 
@@ -31512,7 +27313,7 @@ module.exports = {
   errorOrDestroy: errorOrDestroy
 };
 }).call(this)}).call(this,require('_process'))
-},{"_process":97}],108:[function(require,module,exports){
+},{"_process":62}],72:[function(require,module,exports){
 // Ported from https://github.com/mafintosh/end-of-stream with
 // permission from the author, Mathias Buus (@mafintosh).
 
@@ -31599,12 +27400,12 @@ function eos(stream, opts, callback) {
   };
 }
 module.exports = eos;
-},{"../../../errors":99}],109:[function(require,module,exports){
+},{"../../../errors":63}],73:[function(require,module,exports){
 module.exports = function () {
   throw new Error('Readable.from is not available in the browser')
 };
 
-},{}],110:[function(require,module,exports){
+},{}],74:[function(require,module,exports){
 // Ported from https://github.com/mafintosh/pump with
 // permission from the author, Mathias Buus (@mafintosh).
 
@@ -31691,7 +27492,7 @@ function pipeline() {
   return streams.reduce(pipe);
 }
 module.exports = pipeline;
-},{"../../../errors":99,"./end-of-stream":108}],111:[function(require,module,exports){
+},{"../../../errors":63,"./end-of-stream":72}],75:[function(require,module,exports){
 'use strict';
 
 var ERR_INVALID_OPT_VALUE = require('../../../errors').codes.ERR_INVALID_OPT_VALUE;
@@ -31714,10 +27515,10 @@ function getHighWaterMark(state, options, duplexKey, isDuplex) {
 module.exports = {
   getHighWaterMark: getHighWaterMark
 };
-},{"../../../errors":99}],112:[function(require,module,exports){
+},{"../../../errors":63}],76:[function(require,module,exports){
 module.exports = require('events').EventEmitter;
 
-},{"events":43}],113:[function(require,module,exports){
+},{"events":17}],77:[function(require,module,exports){
 'use strict'
 
 /**
@@ -31746,79 +27547,7 @@ module.exports = function removeItems (arr, startIdx, removeCount) {
   arr.length = len
 }
 
-},{}],114:[function(require,module,exports){
-/*! run-parallel-limit. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
-module.exports = runParallelLimit
-
-const queueMicrotask = require('queue-microtask')
-
-function runParallelLimit (tasks, limit, cb) {
-  if (typeof limit !== 'number') throw new Error('second argument must be a Number')
-  let results, len, pending, keys, isErrored
-  let isSync = true
-  let next
-
-  if (Array.isArray(tasks)) {
-    results = []
-    pending = len = tasks.length
-  } else {
-    keys = Object.keys(tasks)
-    results = {}
-    pending = len = keys.length
-  }
-
-  function done (err) {
-    function end () {
-      if (cb) cb(err, results)
-      cb = null
-    }
-    if (isSync) queueMicrotask(end)
-    else end()
-  }
-
-  function each (i, err, result) {
-    results[i] = result
-    if (err) isErrored = true
-    if (--pending === 0 || err) {
-      done(err)
-    } else if (!isErrored && next < len) {
-      let key
-      if (keys) {
-        key = keys[next]
-        next += 1
-        tasks[key](function (err, result) { each(key, err, result) })
-      } else {
-        key = next
-        next += 1
-        tasks[key](function (err, result) { each(key, err, result) })
-      }
-    }
-  }
-
-  next = limit
-  if (!pending) {
-    // empty
-    done(null)
-  } else if (keys) {
-    // object
-    keys.some(function (key, i) {
-      tasks[key](function (err, result) { each(key, err, result) })
-      if (i === limit - 1) return true // early return
-      return false
-    })
-  } else {
-    // array
-    tasks.some(function (task, i) {
-      task(function (err, result) { each(i, err, result) })
-      if (i === limit - 1) return true // early return
-      return false
-    })
-  }
-
-  isSync = false
-}
-
-},{"queue-microtask":98}],115:[function(require,module,exports){
+},{}],78:[function(require,module,exports){
 /*! safe-buffer. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
 /* eslint-disable node/no-deprecated-api */
 var buffer = require('buffer')
@@ -31885,7 +27614,7 @@ SafeBuffer.allocUnsafeSlow = function (size) {
   return buffer.SlowBuffer(size)
 }
 
-},{"buffer":24}],116:[function(require,module,exports){
+},{"buffer":7}],79:[function(require,module,exports){
 module.exports = scrollToAnchor
 
 function scrollToAnchor (anchor, options) {
@@ -31897,7 +27626,7 @@ function scrollToAnchor (anchor, options) {
   }
 }
 
-},{}],117:[function(require,module,exports){
+},{}],80:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -32028,7 +27757,7 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"events":43,"inherits":59,"readable-stream/lib/_stream_duplex.js":100,"readable-stream/lib/_stream_passthrough.js":101,"readable-stream/lib/_stream_readable.js":102,"readable-stream/lib/_stream_transform.js":103,"readable-stream/lib/_stream_writable.js":104,"readable-stream/lib/internal/streams/end-of-stream.js":108,"readable-stream/lib/internal/streams/pipeline.js":110}],118:[function(require,module,exports){
+},{"events":17,"inherits":33,"readable-stream/lib/_stream_duplex.js":64,"readable-stream/lib/_stream_passthrough.js":65,"readable-stream/lib/_stream_readable.js":66,"readable-stream/lib/_stream_transform.js":67,"readable-stream/lib/_stream_writable.js":68,"readable-stream/lib/internal/streams/end-of-stream.js":72,"readable-stream/lib/internal/streams/pipeline.js":74}],81:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -32325,14 +28054,2034 @@ function simpleWrite(buf) {
 function simpleEnd(buf) {
   return buf && buf.length ? this.write(buf) : '';
 }
-},{"safe-buffer":115}],119:[function(require,module,exports){
+},{"safe-buffer":78}],82:[function(require,module,exports){
 'use strict';
 module.exports = {
 	stdout: false,
 	stderr: false
 };
 
-},{}],120:[function(require,module,exports){
+},{}],83:[function(require,module,exports){
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __commonJS = (cb, mod) => function __require() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+};
+var __export = (target, all) => {
+  for (var name2 in all)
+    __defProp(target, name2, { get: all[name2], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
+var __await = function(promise, isYieldStar) {
+  this[0] = promise;
+  this[1] = isYieldStar;
+};
+var __asyncGenerator = (__this, __arguments, generator) => {
+  var resume = (k, v, yes, no) => {
+    try {
+      var x = generator[k](v), isAwait = (v = x.value) instanceof __await, done = x.done;
+      Promise.resolve(isAwait ? v[0] : v).then((y) => isAwait ? resume(k === "return" ? k : "next", v[1] ? { done: y.done, value: y.value } : y, yes, no) : yes({ value: y, done })).catch((e) => resume("throw", e, yes, no));
+    } catch (e) {
+      no(e);
+    }
+  };
+  var method = (k) => it[k] = (x) => new Promise((yes, no) => resume(k, x, yes, no));
+  var it = {};
+  return generator = generator.apply(__this, __arguments), it[Symbol.asyncIterator] = () => it, method("next"), method("throw"), method("return"), it;
+};
+
+// node_modules/b4a/lib/ascii.js
+var require_ascii = __commonJS({
+  "node_modules/b4a/lib/ascii.js"(exports, module2) {
+    function byteLength(string) {
+      return string.length;
+    }
+    function toString(buffer) {
+      const len = buffer.byteLength;
+      let result = "";
+      for (let i = 0; i < len; i++) {
+        result += String.fromCharCode(buffer[i]);
+      }
+      return result;
+    }
+    function write(buffer, string, offset = 0, length = byteLength(string)) {
+      const len = Math.min(length, buffer.byteLength - offset);
+      for (let i = 0; i < len; i++) {
+        buffer[offset + i] = string.charCodeAt(i);
+      }
+      return len;
+    }
+    module2.exports = {
+      byteLength,
+      toString,
+      write
+    };
+  }
+});
+
+// node_modules/b4a/lib/base64.js
+var require_base64 = __commonJS({
+  "node_modules/b4a/lib/base64.js"(exports, module2) {
+    var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    var codes = new Uint8Array(256);
+    for (let i = 0; i < alphabet.length; i++) {
+      codes[alphabet.charCodeAt(i)] = i;
+    }
+    codes[
+      /* - */
+      45
+    ] = 62;
+    codes[
+      /* _ */
+      95
+    ] = 63;
+    function byteLength(string) {
+      let len = string.length;
+      if (string.charCodeAt(len - 1) === 61)
+        len--;
+      if (len > 1 && string.charCodeAt(len - 1) === 61)
+        len--;
+      return len * 3 >>> 2;
+    }
+    function toString(buffer) {
+      const len = buffer.byteLength;
+      let result = "";
+      for (let i = 0; i < len; i += 3) {
+        result += alphabet[buffer[i] >> 2] + alphabet[(buffer[i] & 3) << 4 | buffer[i + 1] >> 4] + alphabet[(buffer[i + 1] & 15) << 2 | buffer[i + 2] >> 6] + alphabet[buffer[i + 2] & 63];
+      }
+      if (len % 3 === 2) {
+        result = result.substring(0, result.length - 1) + "=";
+      } else if (len % 3 === 1) {
+        result = result.substring(0, result.length - 2) + "==";
+      }
+      return result;
+    }
+    function write(buffer, string, offset = 0, length = byteLength(string)) {
+      const len = Math.min(length, buffer.byteLength - offset);
+      for (let i = 0, j = 0; j < len; i += 4) {
+        const a = codes[string.charCodeAt(i)];
+        const b = codes[string.charCodeAt(i + 1)];
+        const c = codes[string.charCodeAt(i + 2)];
+        const d = codes[string.charCodeAt(i + 3)];
+        buffer[j++] = a << 2 | b >> 4;
+        buffer[j++] = (b & 15) << 4 | c >> 2;
+        buffer[j++] = (c & 3) << 6 | d & 63;
+      }
+      return len;
+    }
+    module2.exports = {
+      byteLength,
+      toString,
+      write
+    };
+  }
+});
+
+// node_modules/b4a/lib/hex.js
+var require_hex = __commonJS({
+  "node_modules/b4a/lib/hex.js"(exports, module2) {
+    function byteLength(string) {
+      return string.length >>> 1;
+    }
+    function toString(buffer) {
+      const len = buffer.byteLength;
+      buffer = new DataView(buffer.buffer, buffer.byteOffset, len);
+      let result = "";
+      let i = 0;
+      for (let n = len - len % 4; i < n; i += 4) {
+        result += buffer.getUint32(i).toString(16).padStart(8, "0");
+      }
+      for (; i < len; i++) {
+        result += buffer.getUint8(i).toString(16).padStart(2, "0");
+      }
+      return result;
+    }
+    function write(buffer, string, offset = 0, length = byteLength(string)) {
+      const len = Math.min(length, buffer.byteLength - offset);
+      for (let i = 0; i < len; i++) {
+        const a = hexValue(string.charCodeAt(i * 2));
+        const b = hexValue(string.charCodeAt(i * 2 + 1));
+        if (a === void 0 || b === void 0) {
+          return buffer.subarray(0, i);
+        }
+        buffer[offset + i] = a << 4 | b;
+      }
+      return len;
+    }
+    module2.exports = {
+      byteLength,
+      toString,
+      write
+    };
+    function hexValue(char) {
+      if (char >= 48 && char <= 57)
+        return char - 48;
+      if (char >= 65 && char <= 70)
+        return char - 65 + 10;
+      if (char >= 97 && char <= 102)
+        return char - 97 + 10;
+    }
+  }
+});
+
+// node_modules/b4a/lib/utf8.js
+var require_utf8 = __commonJS({
+  "node_modules/b4a/lib/utf8.js"(exports, module2) {
+    function byteLength(string) {
+      let length = 0;
+      for (let i = 0, n = string.length; i < n; i++) {
+        const code = string.charCodeAt(i);
+        if (code >= 55296 && code <= 56319 && i + 1 < n) {
+          const code2 = string.charCodeAt(i + 1);
+          if (code2 >= 56320 && code2 <= 57343) {
+            length += 4;
+            i++;
+            continue;
+          }
+        }
+        if (code <= 127)
+          length += 1;
+        else if (code <= 2047)
+          length += 2;
+        else
+          length += 3;
+      }
+      return length;
+    }
+    var toString;
+    if (typeof TextDecoder !== "undefined") {
+      const decoder = new TextDecoder();
+      toString = function toString2(buffer) {
+        return decoder.decode(buffer);
+      };
+    } else {
+      toString = function toString2(buffer) {
+        const len = buffer.byteLength;
+        let output = "";
+        let i = 0;
+        while (i < len) {
+          let byte = buffer[i];
+          if (byte <= 127) {
+            output += String.fromCharCode(byte);
+            i++;
+            continue;
+          }
+          let bytesNeeded = 0;
+          let codePoint = 0;
+          if (byte <= 223) {
+            bytesNeeded = 1;
+            codePoint = byte & 31;
+          } else if (byte <= 239) {
+            bytesNeeded = 2;
+            codePoint = byte & 15;
+          } else if (byte <= 244) {
+            bytesNeeded = 3;
+            codePoint = byte & 7;
+          }
+          if (len - i - bytesNeeded > 0) {
+            let k = 0;
+            while (k < bytesNeeded) {
+              byte = buffer[i + k + 1];
+              codePoint = codePoint << 6 | byte & 63;
+              k += 1;
+            }
+          } else {
+            codePoint = 65533;
+            bytesNeeded = len - i;
+          }
+          output += String.fromCodePoint(codePoint);
+          i += bytesNeeded + 1;
+        }
+        return output;
+      };
+    }
+    var write;
+    if (typeof TextEncoder !== "undefined") {
+      const encoder2 = new TextEncoder();
+      write = function write2(buffer, string, offset = 0, length = byteLength(string)) {
+        const len = Math.min(length, buffer.byteLength - offset);
+        encoder2.encodeInto(string, buffer.subarray(offset, offset + len));
+        return len;
+      };
+    } else {
+      write = function write2(buffer, string, offset = 0, length = byteLength(string)) {
+        const len = Math.min(length, buffer.byteLength - offset);
+        buffer = buffer.subarray(offset, offset + len);
+        let i = 0;
+        let j = 0;
+        while (i < string.length) {
+          const code = string.codePointAt(i);
+          if (code <= 127) {
+            buffer[j++] = code;
+            i++;
+            continue;
+          }
+          let count = 0;
+          let bits2 = 0;
+          if (code <= 2047) {
+            count = 6;
+            bits2 = 192;
+          } else if (code <= 65535) {
+            count = 12;
+            bits2 = 224;
+          } else if (code <= 2097151) {
+            count = 18;
+            bits2 = 240;
+          }
+          buffer[j++] = bits2 | code >> count;
+          count -= 6;
+          while (count >= 0) {
+            buffer[j++] = 128 | code >> count & 63;
+            count -= 6;
+          }
+          i += code >= 65536 ? 2 : 1;
+        }
+        return len;
+      };
+    }
+    module2.exports = {
+      byteLength,
+      toString,
+      write
+    };
+  }
+});
+
+// node_modules/b4a/lib/utf16le.js
+var require_utf16le = __commonJS({
+  "node_modules/b4a/lib/utf16le.js"(exports, module2) {
+    function byteLength(string) {
+      return string.length * 2;
+    }
+    function toString(buffer) {
+      const len = buffer.byteLength;
+      let result = "";
+      for (let i = 0; i < len - 1; i += 2) {
+        result += String.fromCharCode(buffer[i] + buffer[i + 1] * 256);
+      }
+      return result;
+    }
+    function write(buffer, string, offset = 0, length = byteLength(string)) {
+      const len = Math.min(length, buffer.byteLength - offset);
+      let units = len;
+      for (let i = 0; i < string.length; ++i) {
+        if ((units -= 2) < 0)
+          break;
+        const c = string.charCodeAt(i);
+        const hi = c >> 8;
+        const lo = c % 256;
+        buffer[offset + i * 2] = lo;
+        buffer[offset + i * 2 + 1] = hi;
+      }
+      return len;
+    }
+    module2.exports = {
+      byteLength,
+      toString,
+      write
+    };
+  }
+});
+
+// node_modules/b4a/browser.js
+var require_browser = __commonJS({
+  "node_modules/b4a/browser.js"(exports, module2) {
+    var ascii = require_ascii();
+    var base64 = require_base64();
+    var hex = require_hex();
+    var utf8 = require_utf8();
+    var utf16le = require_utf16le();
+    var LE = new Uint8Array(Uint16Array.of(255).buffer)[0] === 255;
+    function codecFor(encoding) {
+      switch (encoding) {
+        case "ascii":
+          return ascii;
+        case "base64":
+          return base64;
+        case "hex":
+          return hex;
+        case "utf8":
+        case "utf-8":
+        case void 0:
+          return utf8;
+        case "ucs2":
+        case "ucs-2":
+        case "utf16le":
+        case "utf-16le":
+          return utf16le;
+        default:
+          throw new Error(`Unknown encoding: ${encoding}`);
+      }
+    }
+    function isBuffer(value) {
+      return value instanceof Uint8Array;
+    }
+    function isEncoding(encoding) {
+      try {
+        codecFor(encoding);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    function alloc(size, fill2, encoding) {
+      const buffer = new Uint8Array(size);
+      if (fill2 !== void 0)
+        exports.fill(buffer, fill2, 0, buffer.byteLength, encoding);
+      return buffer;
+    }
+    function allocUnsafe(size) {
+      return new Uint8Array(size);
+    }
+    function allocUnsafeSlow(size) {
+      return new Uint8Array(size);
+    }
+    function byteLength(string, encoding) {
+      return codecFor(encoding).byteLength(string);
+    }
+    function compare(a, b) {
+      if (a === b)
+        return 0;
+      const len = Math.min(a.byteLength, b.byteLength);
+      a = new DataView(a.buffer, a.byteOffset, a.byteLength);
+      b = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      let i = 0;
+      for (let n = len - len % 4; i < n; i += 4) {
+        const x = a.getUint32(i, LE);
+        const y = b.getUint32(i, LE);
+        if (x !== y)
+          break;
+      }
+      for (; i < len; i++) {
+        const x = a.getUint8(i);
+        const y = b.getUint8(i);
+        if (x < y)
+          return -1;
+        if (x > y)
+          return 1;
+      }
+      return a.byteLength > b.byteLength ? 1 : a.byteLength < b.byteLength ? -1 : 0;
+    }
+    function concat(buffers, totalLength) {
+      if (totalLength === void 0) {
+        totalLength = buffers.reduce((len, buffer) => len + buffer.byteLength, 0);
+      }
+      const result = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const buffer of buffers) {
+        if (offset + buffer.byteLength > result.byteLength) {
+          const sub = buffer.subarray(0, result.byteLength - offset);
+          result.set(sub, offset);
+          return result;
+        }
+        result.set(buffer, offset);
+        offset += buffer.byteLength;
+      }
+      return result;
+    }
+    function copy(source, target, targetStart = 0, start = 0, end = source.byteLength) {
+      if (end > 0 && end < start)
+        return 0;
+      if (end === start)
+        return 0;
+      if (source.byteLength === 0 || target.byteLength === 0)
+        return 0;
+      if (targetStart < 0)
+        throw new RangeError("targetStart is out of range");
+      if (start < 0 || start >= source.byteLength)
+        throw new RangeError("sourceStart is out of range");
+      if (end < 0)
+        throw new RangeError("sourceEnd is out of range");
+      if (targetStart >= target.byteLength)
+        targetStart = target.byteLength;
+      if (end > source.byteLength)
+        end = source.byteLength;
+      if (target.byteLength - targetStart < end - start) {
+        end = target.length - targetStart + start;
+      }
+      const len = end - start;
+      if (source === target) {
+        target.copyWithin(targetStart, start, end);
+      } else {
+        target.set(source.subarray(start, end), targetStart);
+      }
+      return len;
+    }
+    function equals(a, b) {
+      if (a === b)
+        return true;
+      if (a.byteLength !== b.byteLength)
+        return false;
+      const len = a.byteLength;
+      a = new DataView(a.buffer, a.byteOffset, a.byteLength);
+      b = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      let i = 0;
+      for (let n = len - len % 4; i < n; i += 4) {
+        if (a.getUint32(i, LE) !== b.getUint32(i, LE))
+          return false;
+      }
+      for (; i < len; i++) {
+        if (a.getUint8(i) !== b.getUint8(i))
+          return false;
+      }
+      return true;
+    }
+    function fill(buffer, value, offset, end, encoding) {
+      if (typeof value === "string") {
+        if (typeof offset === "string") {
+          encoding = offset;
+          offset = 0;
+          end = buffer.byteLength;
+        } else if (typeof end === "string") {
+          encoding = end;
+          end = buffer.byteLength;
+        }
+      } else if (typeof value === "number") {
+        value = value & 255;
+      } else if (typeof value === "boolean") {
+        value = +value;
+      }
+      if (offset < 0 || buffer.byteLength < offset || buffer.byteLength < end) {
+        throw new RangeError("Out of range index");
+      }
+      if (offset === void 0)
+        offset = 0;
+      if (end === void 0)
+        end = buffer.byteLength;
+      if (end <= offset)
+        return buffer;
+      if (!value)
+        value = 0;
+      if (typeof value === "number") {
+        for (let i = offset; i < end; ++i) {
+          buffer[i] = value;
+        }
+      } else {
+        value = isBuffer(value) ? value : from(value, encoding);
+        const len = value.byteLength;
+        for (let i = 0; i < end - offset; ++i) {
+          buffer[i + offset] = value[i % len];
+        }
+      }
+      return buffer;
+    }
+    function from(value, encodingOrOffset, length) {
+      if (typeof value === "string")
+        return fromString(value, encodingOrOffset);
+      if (Array.isArray(value))
+        return fromArray(value);
+      if (ArrayBuffer.isView(value))
+        return fromBuffer(value);
+      return fromArrayBuffer(value, encodingOrOffset, length);
+    }
+    function fromString(string, encoding) {
+      const codec = codecFor(encoding);
+      const buffer = new Uint8Array(codec.byteLength(string));
+      codec.write(buffer, string, 0, buffer.byteLength);
+      return buffer;
+    }
+    function fromArray(array) {
+      const buffer = new Uint8Array(array.length);
+      buffer.set(array);
+      return buffer;
+    }
+    function fromBuffer(buffer) {
+      const copy2 = new Uint8Array(buffer.byteLength);
+      copy2.set(buffer);
+      return copy2;
+    }
+    function fromArrayBuffer(arrayBuffer, byteOffset, length) {
+      return new Uint8Array(arrayBuffer, byteOffset, length);
+    }
+    function includes(buffer, value, byteOffset, encoding) {
+      return indexOf(buffer, value, byteOffset, encoding) !== -1;
+    }
+    function bidirectionalIndexOf(buffer, value, byteOffset, encoding, first) {
+      if (buffer.byteLength === 0)
+        return -1;
+      if (typeof byteOffset === "string") {
+        encoding = byteOffset;
+        byteOffset = 0;
+      } else if (byteOffset === void 0) {
+        byteOffset = first ? 0 : buffer.length - 1;
+      } else if (byteOffset < 0) {
+        byteOffset += buffer.byteLength;
+      }
+      if (byteOffset >= buffer.byteLength) {
+        if (first)
+          return -1;
+        else
+          byteOffset = buffer.byteLength - 1;
+      } else if (byteOffset < 0) {
+        if (first)
+          byteOffset = 0;
+        else
+          return -1;
+      }
+      if (typeof value === "string") {
+        value = from(value, encoding);
+      } else if (typeof value === "number") {
+        value = value & 255;
+        if (first) {
+          return buffer.indexOf(value, byteOffset);
+        } else {
+          return buffer.lastIndexOf(value, byteOffset);
+        }
+      }
+      if (value.byteLength === 0)
+        return -1;
+      if (first) {
+        let foundIndex = -1;
+        for (let i = byteOffset; i < buffer.byteLength; i++) {
+          if (buffer[i] === value[foundIndex === -1 ? 0 : i - foundIndex]) {
+            if (foundIndex === -1)
+              foundIndex = i;
+            if (i - foundIndex + 1 === value.byteLength)
+              return foundIndex;
+          } else {
+            if (foundIndex !== -1)
+              i -= i - foundIndex;
+            foundIndex = -1;
+          }
+        }
+      } else {
+        if (byteOffset + value.byteLength > buffer.byteLength) {
+          byteOffset = buffer.byteLength - value.byteLength;
+        }
+        for (let i = byteOffset; i >= 0; i--) {
+          let found = true;
+          for (let j = 0; j < value.byteLength; j++) {
+            if (buffer[i + j] !== value[j]) {
+              found = false;
+              break;
+            }
+          }
+          if (found)
+            return i;
+        }
+      }
+      return -1;
+    }
+    function indexOf(buffer, value, byteOffset, encoding) {
+      return bidirectionalIndexOf(
+        buffer,
+        value,
+        byteOffset,
+        encoding,
+        true
+        /* first */
+      );
+    }
+    function lastIndexOf(buffer, value, byteOffset, encoding) {
+      return bidirectionalIndexOf(
+        buffer,
+        value,
+        byteOffset,
+        encoding,
+        false
+        /* last */
+      );
+    }
+    function swap(buffer, n, m) {
+      const i = buffer[n];
+      buffer[n] = buffer[m];
+      buffer[m] = i;
+    }
+    function swap16(buffer) {
+      const len = buffer.byteLength;
+      if (len % 2 !== 0)
+        throw new RangeError("Buffer size must be a multiple of 16-bits");
+      for (let i = 0; i < len; i += 2)
+        swap(buffer, i, i + 1);
+      return buffer;
+    }
+    function swap32(buffer) {
+      const len = buffer.byteLength;
+      if (len % 4 !== 0)
+        throw new RangeError("Buffer size must be a multiple of 32-bits");
+      for (let i = 0; i < len; i += 4) {
+        swap(buffer, i, i + 3);
+        swap(buffer, i + 1, i + 2);
+      }
+      return buffer;
+    }
+    function swap64(buffer) {
+      const len = buffer.byteLength;
+      if (len % 8 !== 0)
+        throw new RangeError("Buffer size must be a multiple of 64-bits");
+      for (let i = 0; i < len; i += 8) {
+        swap(buffer, i, i + 7);
+        swap(buffer, i + 1, i + 6);
+        swap(buffer, i + 2, i + 5);
+        swap(buffer, i + 3, i + 4);
+      }
+      return buffer;
+    }
+    function toBuffer(buffer) {
+      return buffer;
+    }
+    function toString(buffer, encoding, start = 0, end = buffer.byteLength) {
+      const len = buffer.byteLength;
+      if (start >= len)
+        return "";
+      if (end <= start)
+        return "";
+      if (start < 0)
+        start = 0;
+      if (end > len)
+        end = len;
+      if (start !== 0 || end < len)
+        buffer = buffer.subarray(start, end);
+      return codecFor(encoding).toString(buffer);
+    }
+    function write(buffer, string, offset, length, encoding) {
+      if (offset === void 0) {
+        encoding = "utf8";
+      } else if (length === void 0 && typeof offset === "string") {
+        encoding = offset;
+        offset = void 0;
+      } else if (encoding === void 0 && typeof length === "string") {
+        encoding = length;
+        length = void 0;
+      }
+      return codecFor(encoding).write(buffer, string, offset, length);
+    }
+    function writeDoubleLE(buffer, value, offset) {
+      if (offset === void 0)
+        offset = 0;
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      view.setFloat64(offset, value, true);
+      return offset + 8;
+    }
+    function writeFloatLE(buffer, value, offset) {
+      if (offset === void 0)
+        offset = 0;
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      view.setFloat32(offset, value, true);
+      return offset + 4;
+    }
+    function writeUInt32LE(buffer, value, offset) {
+      if (offset === void 0)
+        offset = 0;
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      view.setUint32(offset, value, true);
+      return offset + 4;
+    }
+    function writeInt32LE(buffer, value, offset) {
+      if (offset === void 0)
+        offset = 0;
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      view.setInt32(offset, value, true);
+      return offset + 4;
+    }
+    function readDoubleLE(buffer, offset) {
+      if (offset === void 0)
+        offset = 0;
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      return view.getFloat64(offset, true);
+    }
+    function readFloatLE(buffer, offset) {
+      if (offset === void 0)
+        offset = 0;
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      return view.getFloat32(offset, true);
+    }
+    function readUInt32LE(buffer, offset) {
+      if (offset === void 0)
+        offset = 0;
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      return view.getUint32(offset, true);
+    }
+    function readInt32LE(buffer, offset) {
+      if (offset === void 0)
+        offset = 0;
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      return view.getInt32(offset, true);
+    }
+    module2.exports = exports = {
+      isBuffer,
+      isEncoding,
+      alloc,
+      allocUnsafe,
+      allocUnsafeSlow,
+      byteLength,
+      compare,
+      concat,
+      copy,
+      equals,
+      fill,
+      from,
+      includes,
+      indexOf,
+      lastIndexOf,
+      swap16,
+      swap32,
+      swap64,
+      toBuffer,
+      toString,
+      write,
+      writeDoubleLE,
+      writeFloatLE,
+      writeUInt32LE,
+      writeInt32LE,
+      readDoubleLE,
+      readFloatLE,
+      readUInt32LE,
+      readInt32LE
+    };
+  }
+});
+
+// node_modules/varint/encode.js
+var require_encode = __commonJS({
+  "node_modules/varint/encode.js"(exports, module2) {
+    module2.exports = encode4;
+    var MSB = 128;
+    var REST = 127;
+    var MSBALL = ~REST;
+    var INT = Math.pow(2, 31);
+    function encode4(num, out, offset) {
+      out = out || [];
+      offset = offset || 0;
+      var oldOffset = offset;
+      while (num >= INT) {
+        out[offset++] = num & 255 | MSB;
+        num /= 128;
+      }
+      while (num & MSBALL) {
+        out[offset++] = num & 255 | MSB;
+        num >>>= 7;
+      }
+      out[offset] = num | 0;
+      encode4.bytes = offset - oldOffset + 1;
+      return out;
+    }
+  }
+});
+
+// node_modules/varint/decode.js
+var require_decode = __commonJS({
+  "node_modules/varint/decode.js"(exports, module2) {
+    module2.exports = read;
+    var MSB = 128;
+    var REST = 127;
+    function read(buf, offset) {
+      var res = 0, offset = offset || 0, shift = 0, counter = offset, b, l = buf.length;
+      do {
+        if (counter >= l) {
+          read.bytes = 0;
+          throw new RangeError("Could not decode varint");
+        }
+        b = buf[counter++];
+        res += shift < 28 ? (b & REST) << shift : (b & REST) * Math.pow(2, shift);
+        shift += 7;
+      } while (b >= MSB);
+      read.bytes = counter - offset;
+      return res;
+    }
+  }
+});
+
+// node_modules/varint/length.js
+var require_length = __commonJS({
+  "node_modules/varint/length.js"(exports, module2) {
+    var N1 = Math.pow(2, 7);
+    var N2 = Math.pow(2, 14);
+    var N3 = Math.pow(2, 21);
+    var N4 = Math.pow(2, 28);
+    var N5 = Math.pow(2, 35);
+    var N6 = Math.pow(2, 42);
+    var N7 = Math.pow(2, 49);
+    var N8 = Math.pow(2, 56);
+    var N9 = Math.pow(2, 63);
+    module2.exports = function(value) {
+      return value < N1 ? 1 : value < N2 ? 2 : value < N3 ? 3 : value < N4 ? 4 : value < N5 ? 5 : value < N6 ? 6 : value < N7 ? 7 : value < N8 ? 8 : value < N9 ? 9 : 10;
+    };
+  }
+});
+
+// node_modules/varint/index.js
+var require_varint = __commonJS({
+  "node_modules/varint/index.js"(exports, module2) {
+    module2.exports = {
+      encode: require_encode(),
+      decode: require_decode(),
+      encodingLength: require_length()
+    };
+  }
+});
+
+// node_modules/signed-varint/index.js
+var require_signed_varint = __commonJS({
+  "node_modules/signed-varint/index.js"(exports) {
+    var varint = require_varint();
+    exports.encode = function encode4(v, b, o) {
+      v = v >= 0 ? v * 2 : v * -2 - 1;
+      var r = varint.encode(v, b, o);
+      encode4.bytes = varint.encode.bytes;
+      return r;
+    };
+    exports.decode = function decode8(b, o) {
+      var v = varint.decode(b, o);
+      decode8.bytes = varint.decode.bytes;
+      return v & 1 ? (v + 1) / -2 : v / 2;
+    };
+    exports.encodingLength = function(v) {
+      return varint.encodingLength(v >= 0 ? v * 2 : v * -2 - 1);
+    };
+  }
+});
+
+// node_modules/protocol-buffers-encodings/index.js
+var require_protocol_buffers_encodings = __commonJS({
+  "node_modules/protocol-buffers-encodings/index.js"(exports) {
+    var varint = require_varint();
+    var svarint = require_signed_varint();
+    var b4a7 = require_browser();
+    exports.make = encoder2;
+    exports.name = function(enc) {
+      var keys = Object.keys(exports);
+      for (var i = 0; i < keys.length; i++) {
+        if (exports[keys[i]] === enc)
+          return keys[i];
+      }
+      return null;
+    };
+    exports.skip = function(type, buffer, offset) {
+      switch (type) {
+        case 0:
+          varint.decode(buffer, offset);
+          return offset + varint.decode.bytes;
+        case 1:
+          return offset + 8;
+        case 2:
+          var len = varint.decode(buffer, offset);
+          return offset + varint.decode.bytes + len;
+        case 3:
+        case 4:
+          throw new Error("Groups are not supported");
+        case 5:
+          return offset + 4;
+      }
+      throw new Error("Unknown wire type: " + type);
+    };
+    exports.bytes = encoder2(
+      2,
+      function encode4(val, buffer, offset) {
+        var oldOffset = offset;
+        var len = bufferLength(val);
+        varint.encode(len, buffer, offset);
+        offset += varint.encode.bytes;
+        if (b4a7.isBuffer(val))
+          b4a7.copy(val, buffer, offset);
+        else
+          b4a7.write(buffer, val, offset, len);
+        offset += len;
+        encode4.bytes = offset - oldOffset;
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var oldOffset = offset;
+        var len = varint.decode(buffer, offset);
+        offset += varint.decode.bytes;
+        var val = buffer.subarray(offset, offset + len);
+        offset += val.length;
+        decode8.bytes = offset - oldOffset;
+        return val;
+      },
+      function encodingLength4(val) {
+        var len = bufferLength(val);
+        return varint.encodingLength(len) + len;
+      }
+    );
+    exports.string = encoder2(
+      2,
+      function encode4(val, buffer, offset) {
+        var oldOffset = offset;
+        var len = b4a7.byteLength(val);
+        varint.encode(len, buffer, offset, "utf-8");
+        offset += varint.encode.bytes;
+        b4a7.write(buffer, val, offset, len);
+        offset += len;
+        encode4.bytes = offset - oldOffset;
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var oldOffset = offset;
+        var len = varint.decode(buffer, offset);
+        offset += varint.decode.bytes;
+        var val = b4a7.toString(buffer, "utf-8", offset, offset + len);
+        offset += len;
+        decode8.bytes = offset - oldOffset;
+        return val;
+      },
+      function encodingLength4(val) {
+        var len = b4a7.byteLength(val);
+        return varint.encodingLength(len) + len;
+      }
+    );
+    exports.bool = encoder2(
+      0,
+      function encode4(val, buffer, offset) {
+        buffer[offset] = val ? 1 : 0;
+        encode4.bytes = 1;
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var bool = buffer[offset] > 0;
+        decode8.bytes = 1;
+        return bool;
+      },
+      function encodingLength4() {
+        return 1;
+      }
+    );
+    exports.int32 = encoder2(
+      0,
+      function encode4(val, buffer, offset) {
+        varint.encode(val < 0 ? val + 4294967296 : val, buffer, offset);
+        encode4.bytes = varint.encode.bytes;
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var val = varint.decode(buffer, offset);
+        decode8.bytes = varint.decode.bytes;
+        return val > 2147483647 ? val - 4294967296 : val;
+      },
+      function encodingLength4(val) {
+        return varint.encodingLength(val < 0 ? val + 4294967296 : val);
+      }
+    );
+    exports.int64 = encoder2(
+      0,
+      function encode4(val, buffer, offset) {
+        if (val < 0) {
+          var last = offset + 9;
+          varint.encode(val * -1, buffer, offset);
+          offset += varint.encode.bytes - 1;
+          buffer[offset] = buffer[offset] | 128;
+          while (offset < last - 1) {
+            offset++;
+            buffer[offset] = 255;
+          }
+          buffer[last] = 1;
+          encode4.bytes = 10;
+        } else {
+          varint.encode(val, buffer, offset);
+          encode4.bytes = varint.encode.bytes;
+        }
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var val = varint.decode(buffer, offset);
+        if (val >= Math.pow(2, 63)) {
+          var limit = 9;
+          while (buffer[offset + limit - 1] === 255)
+            limit--;
+          limit = limit || 9;
+          var subset = b4a7.allocUnsafe(limit);
+          b4a7.copy(buffer, subset, 0, offset, offset + limit);
+          subset[limit - 1] = subset[limit - 1] & 127;
+          val = -1 * varint.decode(subset, 0);
+          decode8.bytes = 10;
+        } else {
+          decode8.bytes = varint.decode.bytes;
+        }
+        return val;
+      },
+      function encodingLength4(val) {
+        return val < 0 ? 10 : varint.encodingLength(val);
+      }
+    );
+    exports.sint32 = exports.sint64 = encoder2(
+      0,
+      svarint.encode,
+      svarint.decode,
+      svarint.encodingLength
+    );
+    exports.uint32 = exports.uint64 = exports.enum = exports.varint = encoder2(
+      0,
+      varint.encode,
+      varint.decode,
+      varint.encodingLength
+    );
+    exports.fixed64 = exports.sfixed64 = encoder2(
+      1,
+      function encode4(val, buffer, offset) {
+        b4a7.copy(val, buffer, offset);
+        encode4.bytes = 8;
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var val = buffer.subarray(offset, offset + 8);
+        decode8.bytes = 8;
+        return val;
+      },
+      function encodingLength4() {
+        return 8;
+      }
+    );
+    exports.double = encoder2(
+      1,
+      function encode4(val, buffer, offset) {
+        b4a7.writeDoubleLE(buffer, val, offset);
+        encode4.bytes = 8;
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var val = b4a7.readDoubleLE(buffer, offset);
+        decode8.bytes = 8;
+        return val;
+      },
+      function encodingLength4() {
+        return 8;
+      }
+    );
+    exports.fixed32 = encoder2(
+      5,
+      function encode4(val, buffer, offset) {
+        b4a7.writeUInt32LE(buffer, val, offset);
+        encode4.bytes = 4;
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var val = b4a7.readUInt32LE(buffer, offset);
+        decode8.bytes = 4;
+        return val;
+      },
+      function encodingLength4() {
+        return 4;
+      }
+    );
+    exports.sfixed32 = encoder2(
+      5,
+      function encode4(val, buffer, offset) {
+        b4a7.writeInt32LE(buffer, val, offset);
+        encode4.bytes = 4;
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var val = b4a7.readInt32LE(buffer, offset);
+        decode8.bytes = 4;
+        return val;
+      },
+      function encodingLength4() {
+        return 4;
+      }
+    );
+    exports.float = encoder2(
+      5,
+      function encode4(val, buffer, offset) {
+        b4a7.writeFloatLE(buffer, val, offset);
+        encode4.bytes = 4;
+        return buffer;
+      },
+      function decode8(buffer, offset) {
+        var val = b4a7.readFloatLE(buffer, offset);
+        decode8.bytes = 4;
+        return val;
+      },
+      function encodingLength4() {
+        return 4;
+      }
+    );
+    function encoder2(type, encode4, decode8, encodingLength4) {
+      encode4.bytes = decode8.bytes = 0;
+      return {
+        type,
+        encode: encode4,
+        decode: decode8,
+        encodingLength: encodingLength4
+      };
+    }
+    function bufferLength(val) {
+      return b4a7.isBuffer(val) ? val.length : b4a7.byteLength(val);
+    }
+  }
+});
+
+// browser.mjs
+var browser_exports = {};
+__export(browser_exports, {
+  decode: () => decode7,
+  decodeFetch: () => decodeFetch
+});
+module.exports = __toCommonJS(browser_exports);
+
+// src/read-range/fetch.mjs
+var import_b4a = __toESM(require_browser(), 1);
+function readRange(_0) {
+  return __async(this, arguments, function* ({ filePath, start, end, ranges }) {
+    const headers = new Headers();
+    if (!ranges) {
+      ranges = [{ start, end }];
+    }
+    const byteRange = `bytes=${ranges.map((r) => `${r.start}-${r.end}`).join(", ")}`;
+    headers.append("Range", byteRange);
+    const res = yield fetch(filePath, { headers });
+    const arrayBuffer = yield res.arrayBuffer();
+    const buffer = import_b4a.default.from(arrayBuffer);
+    return buffer;
+  });
+}
+
+// src/tabular-archive-decode.mjs
+var import_b4a6 = __toESM(require_browser(), 1);
+
+// node_modules/fflate/esm/browser.js
+var u8 = Uint8Array;
+var u16 = Uint16Array;
+var i32 = Int32Array;
+var fleb = new u8([
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  1,
+  1,
+  1,
+  2,
+  2,
+  2,
+  2,
+  3,
+  3,
+  3,
+  3,
+  4,
+  4,
+  4,
+  4,
+  5,
+  5,
+  5,
+  5,
+  0,
+  /* unused */
+  0,
+  0,
+  /* impossible */
+  0
+]);
+var fdeb = new u8([
+  0,
+  0,
+  0,
+  0,
+  1,
+  1,
+  2,
+  2,
+  3,
+  3,
+  4,
+  4,
+  5,
+  5,
+  6,
+  6,
+  7,
+  7,
+  8,
+  8,
+  9,
+  9,
+  10,
+  10,
+  11,
+  11,
+  12,
+  12,
+  13,
+  13,
+  /* unused */
+  0,
+  0
+]);
+var clim = new u8([16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]);
+var freb = function(eb, start) {
+  var b = new u16(31);
+  for (var i = 0; i < 31; ++i) {
+    b[i] = start += 1 << eb[i - 1];
+  }
+  var r = new i32(b[30]);
+  for (var i = 1; i < 30; ++i) {
+    for (var j = b[i]; j < b[i + 1]; ++j) {
+      r[j] = j - b[i] << 5 | i;
+    }
+  }
+  return { b, r };
+};
+var _a = freb(fleb, 2);
+var fl = _a.b;
+var revfl = _a.r;
+fl[28] = 258, revfl[258] = 28;
+var _b = freb(fdeb, 0);
+var fd = _b.b;
+var revfd = _b.r;
+var rev = new u16(32768);
+for (i = 0; i < 32768; ++i) {
+  x = (i & 43690) >> 1 | (i & 21845) << 1;
+  x = (x & 52428) >> 2 | (x & 13107) << 2;
+  x = (x & 61680) >> 4 | (x & 3855) << 4;
+  rev[i] = ((x & 65280) >> 8 | (x & 255) << 8) >> 1;
+}
+var x;
+var i;
+var hMap = function(cd, mb, r) {
+  var s = cd.length;
+  var i = 0;
+  var l = new u16(mb);
+  for (; i < s; ++i) {
+    if (cd[i])
+      ++l[cd[i] - 1];
+  }
+  var le = new u16(mb);
+  for (i = 1; i < mb; ++i) {
+    le[i] = le[i - 1] + l[i - 1] << 1;
+  }
+  var co;
+  if (r) {
+    co = new u16(1 << mb);
+    var rvb = 15 - mb;
+    for (i = 0; i < s; ++i) {
+      if (cd[i]) {
+        var sv = i << 4 | cd[i];
+        var r_1 = mb - cd[i];
+        var v = le[cd[i] - 1]++ << r_1;
+        for (var m = v | (1 << r_1) - 1; v <= m; ++v) {
+          co[rev[v] >> rvb] = sv;
+        }
+      }
+    }
+  } else {
+    co = new u16(s);
+    for (i = 0; i < s; ++i) {
+      if (cd[i]) {
+        co[i] = rev[le[cd[i] - 1]++] >> 15 - cd[i];
+      }
+    }
+  }
+  return co;
+};
+var flt = new u8(288);
+for (i = 0; i < 144; ++i)
+  flt[i] = 8;
+var i;
+for (i = 144; i < 256; ++i)
+  flt[i] = 9;
+var i;
+for (i = 256; i < 280; ++i)
+  flt[i] = 7;
+var i;
+for (i = 280; i < 288; ++i)
+  flt[i] = 8;
+var i;
+var fdt = new u8(32);
+for (i = 0; i < 32; ++i)
+  fdt[i] = 5;
+var i;
+var flrm = /* @__PURE__ */ hMap(flt, 9, 1);
+var fdrm = /* @__PURE__ */ hMap(fdt, 5, 1);
+var max = function(a) {
+  var m = a[0];
+  for (var i = 1; i < a.length; ++i) {
+    if (a[i] > m)
+      m = a[i];
+  }
+  return m;
+};
+var bits = function(d, p, m) {
+  var o = p / 8 | 0;
+  return (d[o] | d[o + 1] << 8) >> (p & 7) & m;
+};
+var bits16 = function(d, p) {
+  var o = p / 8 | 0;
+  return (d[o] | d[o + 1] << 8 | d[o + 2] << 16) >> (p & 7);
+};
+var shft = function(p) {
+  return (p + 7) / 8 | 0;
+};
+var slc = function(v, s, e) {
+  if (s == null || s < 0)
+    s = 0;
+  if (e == null || e > v.length)
+    e = v.length;
+  return new u8(v.subarray(s, e));
+};
+var ec = [
+  "unexpected EOF",
+  "invalid block type",
+  "invalid length/literal",
+  "invalid distance",
+  "stream finished",
+  "no stream handler",
+  ,
+  "no callback",
+  "invalid UTF-8 data",
+  "extra field too long",
+  "date not in range 1980-2099",
+  "filename too long",
+  "stream finishing",
+  "invalid zip data"
+  // determined by unknown compression method
+];
+var err = function(ind, msg, nt) {
+  var e = new Error(msg || ec[ind]);
+  e.code = ind;
+  if (Error.captureStackTrace)
+    Error.captureStackTrace(e, err);
+  if (!nt)
+    throw e;
+  return e;
+};
+var inflt = function(dat, st, buf, dict) {
+  var sl = dat.length, dl = dict ? dict.length : 0;
+  if (!sl || st.f && !st.l)
+    return buf || new u8(0);
+  var noBuf = !buf;
+  var resize = noBuf || st.i != 2;
+  var noSt = st.i;
+  if (noBuf)
+    buf = new u8(sl * 3);
+  var cbuf = function(l2) {
+    var bl = buf.length;
+    if (l2 > bl) {
+      var nbuf = new u8(Math.max(bl * 2, l2));
+      nbuf.set(buf);
+      buf = nbuf;
+    }
+  };
+  var final = st.f || 0, pos = st.p || 0, bt = st.b || 0, lm = st.l, dm = st.d, lbt = st.m, dbt = st.n;
+  var tbts = sl * 8;
+  do {
+    if (!lm) {
+      final = bits(dat, pos, 1);
+      var type = bits(dat, pos + 1, 3);
+      pos += 3;
+      if (!type) {
+        var s = shft(pos) + 4, l = dat[s - 4] | dat[s - 3] << 8, t = s + l;
+        if (t > sl) {
+          if (noSt)
+            err(0);
+          break;
+        }
+        if (resize)
+          cbuf(bt + l);
+        buf.set(dat.subarray(s, t), bt);
+        st.b = bt += l, st.p = pos = t * 8, st.f = final;
+        continue;
+      } else if (type == 1)
+        lm = flrm, dm = fdrm, lbt = 9, dbt = 5;
+      else if (type == 2) {
+        var hLit = bits(dat, pos, 31) + 257, hcLen = bits(dat, pos + 10, 15) + 4;
+        var tl = hLit + bits(dat, pos + 5, 31) + 1;
+        pos += 14;
+        var ldt = new u8(tl);
+        var clt = new u8(19);
+        for (var i = 0; i < hcLen; ++i) {
+          clt[clim[i]] = bits(dat, pos + i * 3, 7);
+        }
+        pos += hcLen * 3;
+        var clb = max(clt), clbmsk = (1 << clb) - 1;
+        var clm = hMap(clt, clb, 1);
+        for (var i = 0; i < tl; ) {
+          var r = clm[bits(dat, pos, clbmsk)];
+          pos += r & 15;
+          var s = r >> 4;
+          if (s < 16) {
+            ldt[i++] = s;
+          } else {
+            var c = 0, n = 0;
+            if (s == 16)
+              n = 3 + bits(dat, pos, 3), pos += 2, c = ldt[i - 1];
+            else if (s == 17)
+              n = 3 + bits(dat, pos, 7), pos += 3;
+            else if (s == 18)
+              n = 11 + bits(dat, pos, 127), pos += 7;
+            while (n--)
+              ldt[i++] = c;
+          }
+        }
+        var lt = ldt.subarray(0, hLit), dt = ldt.subarray(hLit);
+        lbt = max(lt);
+        dbt = max(dt);
+        lm = hMap(lt, lbt, 1);
+        dm = hMap(dt, dbt, 1);
+      } else
+        err(1);
+      if (pos > tbts) {
+        if (noSt)
+          err(0);
+        break;
+      }
+    }
+    if (resize)
+      cbuf(bt + 131072);
+    var lms = (1 << lbt) - 1, dms = (1 << dbt) - 1;
+    var lpos = pos;
+    for (; ; lpos = pos) {
+      var c = lm[bits16(dat, pos) & lms], sym = c >> 4;
+      pos += c & 15;
+      if (pos > tbts) {
+        if (noSt)
+          err(0);
+        break;
+      }
+      if (!c)
+        err(2);
+      if (sym < 256)
+        buf[bt++] = sym;
+      else if (sym == 256) {
+        lpos = pos, lm = null;
+        break;
+      } else {
+        var add = sym - 254;
+        if (sym > 264) {
+          var i = sym - 257, b = fleb[i];
+          add = bits(dat, pos, (1 << b) - 1) + fl[i];
+          pos += b;
+        }
+        var d = dm[bits16(dat, pos) & dms], dsym = d >> 4;
+        if (!d)
+          err(3);
+        pos += d & 15;
+        var dt = fd[dsym];
+        if (dsym > 3) {
+          var b = fdeb[dsym];
+          dt += bits16(dat, pos) & (1 << b) - 1, pos += b;
+        }
+        if (pos > tbts) {
+          if (noSt)
+            err(0);
+          break;
+        }
+        if (resize)
+          cbuf(bt + 131072);
+        var end = bt + add;
+        if (bt < dt) {
+          var shift = dl - dt, dend = Math.min(dt, end);
+          if (shift + bt < 0)
+            err(3);
+          for (; bt < dend; ++bt)
+            buf[bt] = dict[shift + bt];
+        }
+        for (; bt < end; ++bt)
+          buf[bt] = buf[bt - dt];
+      }
+    }
+    st.l = lm, st.p = lpos, st.b = bt, st.f = final;
+    if (lm)
+      final = 1, st.m = lbt, st.d = dm, st.n = dbt;
+  } while (!final);
+  return bt != buf.length && noBuf ? slc(buf, 0, bt) : buf.subarray(0, bt);
+};
+var et = /* @__PURE__ */ new u8(0);
+var gzs = function(d) {
+  if (d[0] != 31 || d[1] != 139 || d[2] != 8)
+    err(6, "invalid gzip data");
+  var flg = d[3];
+  var st = 10;
+  if (flg & 4)
+    st += (d[10] | d[11] << 8) + 2;
+  for (var zs = (flg >> 3 & 1) + (flg >> 4 & 1); zs > 0; zs -= !d[st++])
+    ;
+  return st + (flg & 2);
+};
+var gzl = function(d) {
+  var l = d.length;
+  return (d[l - 4] | d[l - 3] << 8 | d[l - 2] << 16 | d[l - 1] << 24) >>> 0;
+};
+function gunzipSync(data, opts) {
+  var st = gzs(data);
+  if (st + 8 > data.length)
+    err(6, "invalid gzip data");
+  return inflt(data.subarray(st, -8), { i: 2 }, opts && opts.out || new u8(gzl(data)), opts && opts.dictionary);
+}
+var td = typeof TextDecoder != "undefined" && /* @__PURE__ */ new TextDecoder();
+var tds = 0;
+try {
+  td.decode(et, { stream: true });
+  tds = 1;
+} catch (e) {
+}
+
+// src/archive-header.mjs
+var import_b4a2 = __toESM(require_browser(), 1);
+
+// src/encoder.mjs
+var import_protocol_buffers_encodings = __toESM(require_protocol_buffers_encodings(), 1);
+var categories = [];
+var setCategories = (c) => {
+  categories = c;
+};
+import_protocol_buffers_encodings.default.date = import_protocol_buffers_encodings.default.make(
+  8,
+  function encode(val, buffer, offset) {
+    const date = new Date(val);
+    let timestamp = date.getTime();
+    if (isNaN(timestamp)) {
+      timestamp = -1;
+    }
+    import_protocol_buffers_encodings.default.int64.encode(timestamp, buffer, offset);
+    encode.bytes = import_protocol_buffers_encodings.default.int64.encode.bytes;
+    return buffer;
+  },
+  function decode(buffer, offset) {
+    const timestamp = import_protocol_buffers_encodings.default.int64.decode(buffer, offset);
+    decode.bytes = import_protocol_buffers_encodings.default.int64.decode.bytes;
+    const date = new Date(timestamp);
+    const value = date.toISOString();
+    return value;
+  },
+  function encodingLength(val) {
+    const date = new Date(val);
+    let timestamp = date.getTime();
+    if (isNaN(timestamp)) {
+      timestamp = -1;
+    }
+    return import_protocol_buffers_encodings.default.int64.encodingLength(timestamp);
+  }
+);
+import_protocol_buffers_encodings.default.category = import_protocol_buffers_encodings.default.make(
+  7,
+  function encode2(val, buffer, offset) {
+    let valueIndex = categories.indexOf(val);
+    if (valueIndex === -1) {
+      categories.push(val);
+      valueIndex = categories.length - 1;
+    }
+    import_protocol_buffers_encodings.default.int32.encode(valueIndex, buffer, offset);
+    encode2.bytes = import_protocol_buffers_encodings.default.int32.encode.bytes;
+    return buffer;
+  },
+  function decode2(buffer, offset) {
+    const valueIndex = import_protocol_buffers_encodings.default.int32.decode(buffer, offset);
+    decode2.bytes = import_protocol_buffers_encodings.default.int32.decode.bytes;
+    const value = categories[valueIndex];
+    return value;
+  },
+  function encodingLength2(val) {
+    let valIndex = categories.indexOf(val);
+    if (valIndex === -1) {
+      categories.push(val);
+      valIndex = categories.length - 1;
+    }
+    return import_protocol_buffers_encodings.default.int32.encodingLength(valIndex);
+  }
+);
+import_protocol_buffers_encodings.default.geo = import_protocol_buffers_encodings.default.make(
+  6,
+  function encode3(val, buffer, offset) {
+    const value = Math.floor(val * 1e7);
+    import_protocol_buffers_encodings.default.int32.encode(value, buffer, offset);
+    encode3.bytes = import_protocol_buffers_encodings.default.int32.encode.bytes;
+    return buffer;
+  },
+  function decode3(buffer, offset) {
+    const val = import_protocol_buffers_encodings.default.int32.decode(buffer, offset);
+    decode3.bytes = import_protocol_buffers_encodings.default.int32.decode.bytes;
+    return val / 1e7;
+  },
+  function encodingLength3(val) {
+    return import_protocol_buffers_encodings.default.int32.encodingLength(Math.floor(val * 1e7));
+  }
+);
+var encoderTypeKeys = Object.keys(import_protocol_buffers_encodings.default).filter((type) => {
+  return typeof import_protocol_buffers_encodings.default[type].encodingLength === "function" && typeof import_protocol_buffers_encodings.default[type].encode === "function" && typeof import_protocol_buffers_encodings.default[type].decode === "function";
+});
+var encoderTypes = encoderTypeKeys.map((type) => {
+  return { [type]: type };
+}).reduce((accumulator, current) => {
+  return __spreadValues(__spreadValues({}, accumulator), current);
+}, {});
+var maxEncoderTypeLength = encoderTypeKeys.map((type) => type.length).sort().pop();
+
+// src/archive-header.mjs
+var name = "TabularArchive";
+var version = 1;
+function create() {
+  let bufferLength = 0;
+  bufferLength += import_protocol_buffers_encodings.default.string.encodingLength(name);
+  bufferLength += import_protocol_buffers_encodings.default.int32.encodingLength(version);
+  bufferLength += 4 + 4;
+  bufferLength += 4 + 4;
+  bufferLength += import_protocol_buffers_encodings.default.string.encodingLength("string".padEnd(maxEncoderTypeLength, " "));
+  bufferLength += 4 + 4;
+  bufferLength += 8 + 8;
+  let buffer = import_b4a2.default.alloc(bufferLength);
+  bufferLength = 0;
+  import_protocol_buffers_encodings.default.string.encode(name, buffer, bufferLength);
+  bufferLength += import_protocol_buffers_encodings.default.string.encode.bytes;
+  import_protocol_buffers_encodings.default.int32.encode(version, buffer, bufferLength);
+  bufferLength += import_protocol_buffers_encodings.default.int32.encode.bytes;
+  let fileHead = buffer.byteLength;
+  return {
+    buffer,
+    bufferLength,
+    fileHead
+  };
+}
+var decode4 = ({ buffer, offset = 0 }) => {
+  const hName = import_protocol_buffers_encodings.default.string.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.string.decode.bytes;
+  const hVersion = import_protocol_buffers_encodings.default.int32.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.int32.decode.bytes;
+  if (name !== hName || version !== hVersion)
+    throw Error(`Archive does not conform to v${version}`);
+  const headerRowStart = import_protocol_buffers_encodings.default.int32.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.int32.decode.bytes;
+  const headerRowEnd = import_protocol_buffers_encodings.default.int32.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.int32.decode.bytes;
+  const categoriesStart = import_protocol_buffers_encodings.default.int32.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.int32.decode.bytes;
+  const categoriesEnd = import_protocol_buffers_encodings.default.int32.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.int32.decode.bytes;
+  const dataRowIdsEncoderString = import_protocol_buffers_encodings.default.string.decode(buffer, offset).trim();
+  offset += import_protocol_buffers_encodings.default.string.decode.bytes;
+  const dataRowIdsStart = import_protocol_buffers_encodings.default.int32.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.int32.decode.bytes;
+  const dataRowIdsEnd = import_protocol_buffers_encodings.default.int32.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.int32.decode.bytes;
+  const dataRowLengthsStart = import_protocol_buffers_encodings.default.int64.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.int64.decode.bytes;
+  const dataRowLengthsEnd = import_protocol_buffers_encodings.default.int64.decode(buffer, offset);
+  offset += import_protocol_buffers_encodings.default.int64.decode.bytes;
+  return {
+    headerRowStart,
+    headerRowEnd,
+    categoriesStart,
+    categoriesEnd,
+    dataRowIdsEncoderString,
+    dataRowIdsStart,
+    dataRowIdsEnd,
+    dataRowLengthsStart,
+    dataRowLengthsEnd
+  };
+};
+
+// src/header-row.mjs
+var import_b4a3 = __toESM(require_browser(), 1);
+var decode5 = ({ buffer, offset = 0 }) => {
+  const uncompressedBuffer = gunzipSync(buffer);
+  const headerRow = [];
+  while (offset < uncompressedBuffer.length - 1) {
+    const field = import_protocol_buffers_encodings.default.string.decode(uncompressedBuffer, offset);
+    offset += import_protocol_buffers_encodings.default.string.decode.bytes;
+    const encoder2 = import_protocol_buffers_encodings.default.string.decode(uncompressedBuffer, offset);
+    offset += import_protocol_buffers_encodings.default.string.decode.bytes;
+    headerRow.push({
+      field,
+      encoder: encoder2
+    });
+  }
+  return { headerRow, offset };
+};
+
+// src/categories.mjs
+var import_b4a4 = __toESM(require_browser(), 1);
+var decode6 = ({ buffer, offset = 0 }) => {
+  const uncompressedBuffer = gunzipSync(buffer);
+  const categories2 = [];
+  while (offset < uncompressedBuffer.length - 1) {
+    const category = import_protocol_buffers_encodings.default.string.decode(uncompressedBuffer, offset);
+    offset += import_protocol_buffers_encodings.default.string.decode.bytes;
+    categories2.push(category);
+  }
+  return { categories: categories2, offset };
+};
+
+// src/data-rows.mjs
+var import_b4a5 = __toESM(require_browser(), 1);
+var dataRowDecoder = ({ headerRow }) => {
+  return ({ buffer, offset = 0 }) => {
+    const row = {};
+    headerRow.forEach((headerSpec) => {
+      const encoder2 = import_protocol_buffers_encodings.default[headerSpec.encoder];
+      const value = encoder2.decode(buffer, offset);
+      offset += encoder2.decode.bytes;
+      row[headerSpec.field] = value;
+    });
+    return {
+      row,
+      buffer,
+      offset
+    };
+  };
+};
+
+// src/tabular-archive-decode.mjs
+var readArchiveRanges = ({ readRange: readRange2 }) => {
+  return {
+    archiveHeader: (_0) => __async(void 0, [_0], function* ({ filePath }) {
+      const emptyArchiveHeader = create();
+      const start = 0;
+      const end = emptyArchiveHeader.buffer.byteLength;
+      return readRange2({
+        filePath,
+        start,
+        end
+      });
+    }),
+    headerRow: (_0) => __async(void 0, [_0], function* ({ filePath, headerRowStart, headerRowEnd }) {
+      return readRange2({
+        filePath,
+        start: headerRowStart,
+        end: headerRowEnd
+      });
+    }),
+    categories: (_0) => __async(void 0, [_0], function* ({ filePath, categoriesStart, categoriesEnd }) {
+      return readRange2({
+        filePath,
+        start: categoriesStart,
+        end: categoriesEnd
+      });
+    }),
+    dataRowIds: (_0) => __async(void 0, [_0], function* ({ filePath, dataRowIdsStart, dataRowIdsEnd }) {
+      return readRange2({
+        filePath,
+        start: dataRowIdsStart,
+        end: dataRowIdsEnd
+      });
+    }),
+    dataRowLengths: (_0) => __async(void 0, [_0], function* ({ filePath, dataRowLengthsStart, dataRowLengthsEnd }) {
+      return readRange2({
+        filePath,
+        start: dataRowLengthsStart,
+        end: dataRowLengthsEnd
+      });
+    }),
+    archiveHeaderPartsBuffer: (_0) => __async(void 0, [_0], function* ({
+      filePath,
+      headerRowStart,
+      headerRowEnd,
+      categoriesStart,
+      categoriesEnd,
+      dataRowIdsStart,
+      dataRowIdsEnd,
+      dataRowLengthsStart,
+      dataRowLengthsEnd
+    }) {
+      const ranges = [
+        {
+          name: "headerRow",
+          start: headerRowStart,
+          end: headerRowEnd
+        },
+        {
+          name: "categories",
+          start: categoriesStart,
+          end: categoriesEnd
+        },
+        {
+          name: "dataRowIds",
+          start: dataRowIdsStart,
+          end: dataRowIdsEnd
+        },
+        {
+          name: "dataRowLengths",
+          start: dataRowLengthsStart,
+          end: dataRowLengthsEnd
+        }
+      ];
+      const buffer = yield readRange2({
+        filePath,
+        ranges: [{ start: headerRowStart, end: dataRowLengthsEnd }]
+      });
+      let offset = 0;
+      const parts = {};
+      for (const range of ranges) {
+        const length = range.end - range.start;
+        const partBuffer = buffer.subarray(offset, offset + length);
+        offset += length;
+        parts[`${range.name}Buffer`] = partBuffer;
+      }
+      return parts;
+    })
+  };
+};
+var decode7 = ({ readRange: readRange2 }) => (_0) => __async(void 0, [_0], function* ({ archiveFilePath }) {
+  const archiveRanges = readArchiveRanges({ readRange: readRange2 });
+  const archiveHeaderBuffer = yield archiveRanges.archiveHeader({
+    filePath: archiveFilePath
+  });
+  const archiveHeader = decode4({ buffer: archiveHeaderBuffer });
+  const { dataRowIdsEncoderString } = archiveHeader;
+  const startOfDataRows = archiveHeader.dataRowLengthsEnd;
+  const userIdEncoder = import_protocol_buffers_encodings.default[dataRowIdsEncoderString];
+  const readOptions = __spreadValues({
+    filePath: archiveFilePath
+  }, archiveHeader);
+  const {
+    headerRowBuffer,
+    categoriesBuffer,
+    dataRowIdsBuffer,
+    dataRowLengthsBuffer
+  } = yield archiveRanges.archiveHeaderPartsBuffer(readOptions);
+  const { headerRow } = decode5({ buffer: headerRowBuffer });
+  const { categories: categories2 } = decode6({ buffer: categoriesBuffer });
+  setCategories(categories2);
+  const dataRowIdsDecoded = decodeDataRowIdsBuffer({ buffer: dataRowIdsBuffer });
+  const { dataRowIds } = dataRowIdsDecoded;
+  const { dataRowLengths } = decodeRowLengthsBuffer({ buffer: dataRowLengthsBuffer });
+  const rowDecoder = dataRowDecoder({ headerRow });
+  const rowCount = dataRowLengths.length;
+  return {
+    headerRow,
+    rowCount,
+    categories: categories2,
+    getRowBySequence,
+    getRowsBySequence,
+    getRowById,
+    getRowsByIdWithPage
+  };
+  function decodeDataRowIdsBuffer({ buffer, offset = 0 }) {
+    const dataRowIds2 = [];
+    while (offset < buffer.length - 1) {
+      const id = userIdEncoder.decode(buffer, offset);
+      offset += userIdEncoder.decode.bytes;
+      dataRowIds2.push(id);
+    }
+    return { dataRowIds: dataRowIds2, offset };
+  }
+  function decodeRowLengthsBuffer({ buffer, offset = 0 }) {
+    const dataRowLengths2 = [];
+    while (offset < buffer.length - 1) {
+      const len = import_protocol_buffers_encodings.default.int64.decode(buffer, offset);
+      offset += import_protocol_buffers_encodings.default.int64.decode.bytes;
+      dataRowLengths2.push(len);
+    }
+    return { dataRowLengths: dataRowLengths2, offset };
+  }
+  function sum(accumulator, current) {
+    return accumulator + current;
+  }
+  function getRowBySequence(_02) {
+    return __async(this, arguments, function* ({ rowNumber }) {
+      const start = dataRowLengths.slice(0, rowNumber).reduce(sum, startOfDataRows);
+      const end = dataRowLengths.slice(rowNumber, rowNumber + 1).reduce(sum, start);
+      const compressedBuffer = yield readRange2({
+        filePath: archiveFilePath,
+        start,
+        end
+      });
+      const buffer = gunzipSync(compressedBuffer);
+      const { row } = rowDecoder({ buffer });
+      return { row, rowNumber };
+    });
+  }
+  function getRowsBySequence(_02) {
+    return __asyncGenerator(this, arguments, function* ({ startRowNumber, endRowNumber }) {
+      const start = dataRowLengths.slice(0, startRowNumber).reduce(sum, startOfDataRows);
+      const rowLengths = dataRowLengths.slice(startRowNumber, endRowNumber + 1);
+      const end = rowLengths.reduce(sum, start);
+      const compressedBuffer = yield new __await(readRange2({
+        filePath: archiveFilePath,
+        start,
+        end
+      }));
+      let offsetStart = 0;
+      for (let i = 0; i < rowLengths.length; i++) {
+        const offsetEnd = offsetStart + rowLengths[i];
+        const compressedBufferSlice = compressedBuffer.slice(offsetStart, offsetEnd);
+        const buffer = gunzipSync(compressedBufferSlice);
+        const { row } = rowDecoder({ buffer });
+        yield { row, rowNumber: startRowNumber + i };
+        offsetStart = offsetEnd;
+      }
+    });
+  }
+  function getRowById(_02) {
+    return __async(this, arguments, function* ({ id }) {
+      const index = dataRowIds.indexOf(id);
+      if (index === -1)
+        throw new Error(`No id value ${id} in this archive`);
+      return yield getRowBySequence({ rowNumber: index });
+    });
+  }
+  function getRowsByIdWithPage({ id, pageCount }) {
+    const index = dataRowIds.indexOf(id);
+    if (index === -1)
+      throw new Error(`No id value ${id} in this archive`);
+    const rowOffset = (pageCount - 1) / 2;
+    let startRowNumber = index - Math.floor(rowOffset);
+    let endRowNumber = index + Math.ceil(rowOffset);
+    if (startRowNumber < 0) {
+      const diff = 0 - startRowNumber;
+      startRowNumber = 0;
+      endRowNumber += diff;
+    } else if (endRowNumber > dataRowIds.length - 1) {
+      const diff = endRowNumber - (dataRowIds.length - 1);
+      startRowNumber -= diff;
+      endRowNumber -= diff;
+    }
+    return getRowsBySequence({ startRowNumber, endRowNumber });
+  }
+});
+
+// browser.mjs
+var decodeFetch = decode7({ readRange });
+
+},{}],84:[function(require,module,exports){
 (function (setImmediate,clearImmediate){(function (){
 var nextTick = require('process/browser.js').nextTick;
 var apply = Function.prototype.apply;
@@ -32411,7 +30160,7 @@ exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate :
   delete immediateIds[id];
 };
 }).call(this)}).call(this,require("timers").setImmediate,require("timers").clearImmediate)
-},{"process/browser.js":97,"timers":120}],121:[function(require,module,exports){
+},{"process/browser.js":62,"timers":84}],85:[function(require,module,exports){
 exports.isatty = function () { return false; };
 
 function ReadStream() {
@@ -32424,412 +30173,7 @@ function WriteStream() {
 }
 exports.WriteStream = WriteStream;
 
-},{}],122:[function(require,module,exports){
-(function (Buffer){(function (){
-var collation = require('./collation')
-
-//
-// base type system
-//
-var base = {}
-
-//
-// helper utilities
-//
-
-function _valueOf(instance) {
-  return instance == null ? instance : instance.valueOf()
-}
-
-var _toString = Object.prototype.toString
-
-function _isObject(instance) {
-  return instance && _toString.call(instance) === '[object Object]'
-}
-
-//
-// base typewise compare implementation
-//
-base.compare = function (a, b) {
-  //
-  // test for invalid values
-  //
-  if (base.invalid(a, b))
-    return NaN
-
-  //
-  // short circuit for identical objects
-  //
-  if (a === b)
-    return 0
-
-  //
-  // short circuit for base bound types
-  //
-  var result = base.bound.compare(a, b)
-  if (result !== undefined)
-    return result
-
-  //
-  // cache typeof and valueOf for both values
-  //
-  var aTypeOf = typeof a
-  var bTypeOf = typeof b
-  var aValueOf = _valueOf(a)
-  var bValueOf = _valueOf(b)
-
-  //
-  // loop over type tags and attempt compare
-  //
-  var order = base.order
-  var sorts = base.sorts
-  var sort
-  for (var i = 0, length = order.length; i < length; ++i) {
-    sort = sorts[order[i]]
-
-    //
-    // if first arg is a member of this sort we have an answer
-    //
-    if (sort.is(a, aTypeOf))
-      //
-      // if b is the same as a then defer to sort's comparator, else a comes first
-      //
-      return sort.is(b, bTypeOf) ? sort.compare(aValueOf, bValueOf) : -1
-
-    //
-    // if b is this type but not a then b comes first
-    //
-    if (sort.is(b, bTypeOf))
-      return 1
-  }
-
-  //
-  // values are incomparable as they didn't match against any registered types
-  //
-  return NaN
-}
-
-//
-// sort equality test
-//
-base.equal = function(a, b) {
-  return base.compare(a, b) === 0
-}
-
-//
-// test for top-level incomparability using invalid sort definitions
-//
-base.invalid = function (a, b) {
-  var types = base.invalid
-  for (var key in types) {
-    var type = types[key]
-    if (type && type.is && (type.is(a) || type.is(b)))
-      return true
-  }
-  return false
-}
-
-//
-// definitions for explicitly invalid/incomparable types
-//
-
-base.invalid.NAN = {
-  is: function (instance) {
-    var valueOf = _valueOf(instance)
-    return valueOf !== valueOf
-  }
-}
-
-base.invalid.ERROR = {
-  is: function (instance) {
-    return instance && instance instanceof Error
-  }
-}
-
-//
-// definitions for boundary types, unserializable as values
-//
-
-function BoundedKey(bound, upper, prefix) {
-  this.bound = bound
-  this.upper = !!upper
-  this.prefix = prefix
-}
-
-function Boundary(sort) {
-  this.sort = sort
-}
-
-Boundary.prototype.lower = function (prefix) {
-  return new BoundedKey(this, false, prefix)
-}
-
-Boundary.prototype.upper = function (prefix) {
-  return new BoundedKey(this, true, prefix)
-}
-
-Boundary.prototype.is = function (source) {
-  return source instanceof BoundedKey && source.sort === this.sort
-}
-
-Boundary.add = function (sort) {
-  sort.bound = new Boundary(sort)
-}
-
-Boundary.add(base)
-
-base.bound.getBoundary = function (source) {
-  return source instanceof BoundedKey && source.bound
-}
-
-//
-// compare a values against top level bounds (assumes first arg is an instance)
-//
-base.bound.compare = function (a, b) {
-  var aBound = base.bound.is(a)
-  var bBound = base.bound.is(b)
-  if (aBound) {
-    if (bBound && !a.upper === !b.upper)
-      return 0
-    return a.upper ? 1 : -1
-  }
-
-  if (bBound)
-    return -base.bound.compare(b, a)
-}
-
-//
-// helper to register fixed (nullary) types
-//
-function fixed(value) {
-  return {
-    is: function (instance) {
-      return instance === value
-    },
-    value: value
-  }
-}
-
-//
-// value types defined as ordered map of "sorts"
-//
-var sorts = base.sorts = {}
-
-sorts.void = fixed(void 0)
-sorts.void.compare = collation.inequality
-
-sorts.null = fixed(null)
-sorts.null.compare = collation.inequality
-
-var BOOLEAN = sorts.boolean = {}
-BOOLEAN.compare = collation.inequality
-BOOLEAN.is = function (instance, typeOf) {
-  return (typeOf || typeof instance) === 'boolean'
-}
-
-BOOLEAN.sorts = {}
-BOOLEAN.sorts.true = fixed(true)
-BOOLEAN.sorts.false = fixed(false)
-
-Boundary.add(BOOLEAN)
-
-
-var NUMBER = sorts.number = {}
-NUMBER.compare = collation.difference
-NUMBER.is = function (instance, typeOf) {
-  return (typeOf || typeof instance) === 'number'
-}
-
-NUMBER.sorts = {}
-NUMBER.sorts.max = fixed(Number.POSITIVE_INFINITY)
-NUMBER.sorts.min = fixed(Number.NEGATIVE_INFINITY)
-
-NUMBER.sorts.positive = {}
-NUMBER.sorts.positive.is = function (instance) {
-  return instance >= 0
-}
-
-NUMBER.sorts.negative = {}
-NUMBER.sorts.negative.is = function (instance) {
-  return instance < 0
-}
-
-Boundary.add(NUMBER)
-
-
-var DATE = sorts.date = {}
-DATE.compare = collation.difference
-DATE.is = function (instance) {
-  return instance instanceof Date && instance.valueOf() === instance.valueOf()
-}
-
-DATE.sorts = {}
-DATE.sorts.positive = {}
-DATE.sorts.positive.is = function (instance) {
-  return instance.valueOf() >= 0
-}
-
-DATE.sorts.negative = {}
-DATE.sorts.negative.is = function (instance) {
-  return instance.valueOf() < 0
-}
-
-Boundary.add(DATE)
-
-
-var BINARY = sorts.binary = {}
-BINARY.empty = new Buffer([])
-BINARY.compare = collation.bitwise
-BINARY.is = Buffer.isBuffer
-
-Boundary.add(BINARY)
-
-
-var STRING = sorts.string = {}
-STRING.empty = ''
-STRING.compare = collation.inequality
-STRING.is = function (instance, typeOf) {
-  return (typeOf || typeof instance) === 'string'
-}
-
-Boundary.add(STRING)
-
-
-var ARRAY = sorts.array = {}
-ARRAY.empty = []
-ARRAY.compare = collation.recursive.elementwise(base.compare)
-ARRAY.is = Array.isArray
-
-Boundary.add(ARRAY)
-
-
-// var OBJECT = sorts.object = {}
-// OBJECT.empty = {}
-// OBJECT.compare = collation.recursive.fieldwise(base.compare)
-// OBJECT.is = _isObject
-
-// Boundary.add(OBJECT)
-
-//
-// default order for instance checking in compare operations
-//
-base.order = []
-for (var key in sorts) {
-  base.order.push(key)
-}
-
-module.exports = base
-
-}).call(this)}).call(this,require("buffer").Buffer)
-},{"./collation":123,"buffer":24}],123:[function(require,module,exports){
-//
-// generic comparator implementations our types can use
-//
-var collation = exports
-
-//
-// scalar comparisons
-//
-collation.inequality = function (a, b) {
-  return a < b ? -1 : ( a > b ? 1 : 0 )
-}
-
-collation.difference = function (a, b) {
-  return a - b
-}
-
-//
-// recursive collations have to be provided a collation function to delegate to
-//
-collation.recursive = {}
-
-//
-// element by element (comparison for list-like structures
-//
-collation.recursive.elementwise = function (compare, shortlex) {
-  return function (a, b) {
-    var aLength = a.length
-    var bLength = b.length
-    var difference
-
-    //
-    // short-circuit on length difference for shortlex semantics
-    //
-    if (shortlex && aLength !== bLength)
-        return aLength - bLength
-
-    for (var i = 0, length = Math.min(aLength, bLength); i < length; ++i) {
-      if (difference = compare(a[i], b[i]))
-        return difference
-    }
-
-    return aLength - bLength
-  }
-}
-
-//
-// field by field comparison of record-like structures
-//
-collation.recursive.fieldwise = function (compare, shortlex) {
-  return function (a, b) {
-    var aKeys = Object.keys(a)
-    var bKeys = Object.keys(b)
-    var aLength = aKeys.length
-    var bLength = bKeys.length
-    var difference
-
-    //
-    // short-circuit on length difference for shortlex semantics
-    //
-    if (shortlex && aLength !== bLength)
-        return aLength - bLength
-
-    for (var i = 0, length = Math.min(aLength, bLength); i < length; ++i) {
-      //
-      // first compare keys
-      //
-      if (difference = compare(aKeys[i], bKeys[i]))
-        return difference
-
-      //
-      // then compare values
-      //
-      if (difference = compare(a[aKeys[i]], b[bKeys[i]]))
-        return difference
-    }
-
-    return aLength - bLength
-  }
-}
-
-//
-// elementwise compare with inequality can be used for binary equality
-//
-collation.bitwise = collation.recursive.elementwise(exports.inequality)
-
-
-},{}],124:[function(require,module,exports){
-//
-// extend core typewise
-//
-require('./collation')
-
-module.exports = require('typewise-core/base')
-
-},{"./collation":125,"typewise-core/base":122}],125:[function(require,module,exports){
-//
-// extend core typewise collations
-//
-var collation = require('typewise-core/collation')
-
-// TODO: set, map
-
-module.exports = collation
-
-},{"typewise-core/collation":123}],126:[function(require,module,exports){
-module.exports = require('./base')
-
-},{"./base":124}],127:[function(require,module,exports){
+},{}],86:[function(require,module,exports){
 (function (global){(function (){
 
 /**
@@ -32900,14 +30244,14 @@ function config (name) {
 }
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],128:[function(require,module,exports){
+},{}],87:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],129:[function(require,module,exports){
+},{}],88:[function(require,module,exports){
 // Currently in sync with Node.js lib/internal/util/types.js
 // https://github.com/nodejs/node/commit/112cc7c27551254aa2b17098fb774867f05ed0d9
 
@@ -33243,7 +30587,7 @@ exports.isAnyArrayBuffer = isAnyArrayBuffer;
   });
 });
 
-},{"is-arguments":60,"is-generator-function":62,"is-typed-array":63,"which-typed-array":133}],130:[function(require,module,exports){
+},{"is-arguments":34,"is-generator-function":36,"is-typed-array":37,"which-typed-array":92}],89:[function(require,module,exports){
 (function (process){(function (){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -33962,7 +31306,7 @@ function callbackify(original) {
 exports.callbackify = callbackify;
 
 }).call(this)}).call(this,require('_process'))
-},{"./support/isBuffer":128,"./support/types":129,"_process":97,"inherits":59}],131:[function(require,module,exports){
+},{"./support/isBuffer":87,"./support/types":88,"_process":62,"inherits":33}],90:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var assert = require('assert')
 var trie = require('./trie')
@@ -34037,7 +31381,7 @@ function Wayfarer (dft) {
   }
 }
 
-},{"./trie":132,"assert":73}],132:[function(require,module,exports){
+},{"./trie":91,"assert":39}],91:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var assert = require('assert')
 
@@ -34178,7 +31522,7 @@ function has (object, property) {
   return Object.prototype.hasOwnProperty.call(object, property)
 }
 
-},{"assert":73}],133:[function(require,module,exports){
+},{"assert":39}],92:[function(require,module,exports){
 (function (global){(function (){
 'use strict';
 
@@ -34271,7 +31615,7 @@ module.exports = function whichTypedArray(value) {
 };
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"available-typed-arrays":15,"call-bind":33,"call-bind/callBound":32,"for-each":44,"gopd":50,"has-tostringtag/shams":54}],134:[function(require,module,exports){
+},{"available-typed-arrays":3,"call-bind":9,"call-bind/callBound":8,"for-each":18,"gopd":24,"has-tostringtag/shams":28}],93:[function(require,module,exports){
 const html = require('choo/html')
 const classnames = require('classnames')
 
@@ -34291,7 +31635,7 @@ module.exports = function ({ loading }) {
   `
 }
 
-},{"choo/html":38,"classnames":41}],135:[function(require,module,exports){
+},{"choo/html":12,"classnames":15}],94:[function(require,module,exports){
 const html = require('choo/html')
 const Component = require('choo/component')
 const classnames = require('classnames')
@@ -34459,7 +31803,7 @@ class MapUI extends Component {
 }
 
 module.exports = MapUI
-},{"../loading.js":134,"./map.js":136,"choo/component":37,"choo/html":38,"classnames":41}],136:[function(require,module,exports){
+},{"../loading.js":93,"./map.js":95,"choo/component":11,"choo/html":12,"classnames":15}],95:[function(require,module,exports){
 const maplibregl = require('maplibre-gl')
 const pmtiles = require('pmtiles')
 const chroma = require('chroma-js')
@@ -34719,7 +32063,7 @@ if ("development" === 'development') {
   host = '.'
 }
 else if ("development" === 'production') {
-  host = 'https://rubonics-pmtiles.s3.amazonaws.com/wa-dnr'
+  host = 'https://rubonics-pmtiles.s3.amazonaws.com/nhd-wa'
 }
 
 const geojsonSource = (spec) => {
@@ -34959,7 +32303,7 @@ module.exports = async function ({ container }) {
   return { map, setTheme, setAnalysis }
 }
 
-},{"../../../common.js":1,"chroma-js":40,"maplibre-gl":71,"pmtiles":96}],137:[function(require,module,exports){
+},{"../../../common.js":1,"chroma-js":14,"maplibre-gl":38,"pmtiles":61}],96:[function(require,module,exports){
 const html = require('choo/html')
 const classnames = require('classnames')
 
@@ -35012,12 +32356,10 @@ function SplitPane ({ left, right, state, emit }) {
           'border-solid': true,
         })}">
         <div class="${classnames({
-          'h-full': isHorizontal,
-          'w-full': isHorizontal && local.left.open && !local.right.open,
+          'h-full': isHorizontal || (isVertical && local.left.open && !local.right.open),
+          'w-full': (isHorizontal && local.left.open && !local.right.open) || isVertical,
           'w-1/2': isHorizontal && local.left.open && local.right.open,
           'w-0': isHorizontal && !local.left.open && local.right.open,
-          'w-full': isVertical,
-          'h-full': isVertical && local.left.open && !local.right.open,
           'h-1/2': isVertical && local.left.open && local.right.open,
           'h-0': isVertical && !local.left.open && local.right.open,
           'overflow-scroll': true,
@@ -35029,12 +32371,10 @@ function SplitPane ({ left, right, state, emit }) {
           ${left}
         </div>
         <div class="${classnames({
-          'h-full': isHorizontal,
-          'w-full': isHorizontal && !local.left.open && local.right.open,
+          'h-full': isHorizontal || (isVertical && !local.left.open && local.right.open),
+          'w-full': (isHorizontal && !local.left.open && local.right.open) || isVertical,
           'w-1/2': isHorizontal && local.left.open && local.right.open,
           'w-0': isHorizontal && local.left.open && !local.right.open,
-          'w-full': isVertical,
-          'h-full': isVertical && !local.left.open && local.right.open,
           'h-1/2': isVertical && local.left.open && local.right.open,
           'h-0': isVertical && local.left.open && !local.right.open,
           'overflow-scroll': true,
@@ -35065,65 +32405,12 @@ function SplitPane ({ left, right, state, emit }) {
 }
 
 module.exports = SplitPane
-},{"choo/html":38,"classnames":41}],138:[function(require,module,exports){
+},{"choo/html":12,"classnames":15}],97:[function(require,module,exports){
 const html = require('choo/html')
 const Component = require('choo/component')
 const classnames = require('classnames')
-const {parse} = require('papaparse')
-const {Level} = require('level')
-const bytewise = require('bytewise')
 const Loading = require('./loading.js')
-
-async function Db ({ name }) {
-  function constructor () {
-    return new Level(name, {
-      keyEncoding: bytewise,
-      valueEncoding: 'json',
-    })
-  }
-  const db = constructor()
-  await db.close()
-  await Level.destroy(name)
-  await db.open()
-
-  let positionIncrement = -1
-
-  const idFn = ({ row }) => {
-    return row.find(s => s.key === 'id')?.value
-  }
-
-  const keyIdFn = ({ id }) => {
-    return ['row', 'id', id]
-  }
-
-  const keyPositionFn = ({ position }) => {
-    return ['row', 'position', position]
-  }
-
-  db.putRow = async ({ row }) => {
-    positionIncrement += 1
-    const pos = { position: positionIncrement }
-    const id = idFn({ row })
-    await db.put(keyIdFn({ id }), pos)
-    await db.put(keyPositionFn(pos), { row })
-    return pos
-  }
-
-  db.getPosition = async ({ id }) => {
-    return await db.get(keyIdFn({ id }))
-  }
-
-  db.getRows = ({ activePositions }) => {
-    return db.iterator({
-      gt: keyPositionFn({ position: activePositions[0] - 1 }),
-      lt: keyPositionFn({ position: activePositions[1] + 1 }),
-    })
-  }
-
-  db.rowCount = () => positionIncrement
-
-  return db
-}
+const {decodeFetch: TADecoder} = require('tabular-archive')
 
 class TabularComponent extends Component {
   constructor (id, state, emit) {
@@ -35131,9 +32418,15 @@ class TabularComponent extends Component {
     this.local = {...state.components[id]}
     this.emit = emit
     this.local.selected = null
-    this.local.activePositions = [0, this.local.pageCount - 1]
+    this.local.activePositions = {
+      startRowNumber: undefined,
+      endRowNumber: undefined,
+    }
+    this.local.loading = true
+    this.headerRow = []
+    this.rowCount = undefined
 
-    const analysisKeys = [
+    const analysisFields = [
       'period-all',
       'period-min-eph',
       'period-min-int',
@@ -35152,14 +32445,14 @@ class TabularComponent extends Component {
         return acc.concat(curr)
       }, [])
 
-    const showKeys = new Set([
+    const showFields = new Set([
       'id',
       'reclassified.tree.canopy.symptoms',
-      ...analysisKeys,
+      ...analysisFields,
     ])
 
-    this.filterKeys = ({ key }) => {
-      return showKeys.has(key)
+    this.filterFields = ({ field }) => {
+      return showFields.has(field)
     }
 
     this.transformValues = ({ key, value }) => {
@@ -35172,45 +32465,55 @@ class TabularComponent extends Component {
   }
 
   loadAbove () {
-    this.emit('tabular:data:load:above', {
-      db: this.db,
+    this.emit('tabular:rows:load:above', {
+      taDecoder: this.taDecoder,
+      rowCount: this.rowCount,
       activePositions: this.local.activePositions,
     })
   }
 
   loadBelow () {
-    this.emit('tabular:data:load:below', {
-      db: this.db,
+    this.emit('tabular:rows:load:below', {
+      taDecoder: this.taDecoder,
+      rowCount: this.rowCount,
       activePositions: this.local.activePositions,
     })
   }
 
-  load(element) {
-    this.loadData(this.local)
+  load (element) {
+    TADecoder({ archiveFilePath: this.local.archiveFilePath })
+      .then(async (decoder) => {
+        this.taDecoder = decoder
+        this.local.rowCount = decoder.rowCount
+        this.headerRow = decoder.headerRow
+
+        this.emit('tabular:header:loaded', {
+          rowCount: this.local.rowCount,
+          taDecoder: this.taDecoder,
+        })
+      })
   }
 
   createElement () {
-    const headerRow = this.local.data?.[0]?.filter(this.filterKeys) || []
-    const numFields = headerRow.length
-    const tableWidth = numFields * 150
-    const tableWidthPx = `${tableWidth}px`
     return html`
       <div class="relative w-full h-full">
-        ${Loading({ loading: this.local.data.length === 0 })}
+        ${Loading({ loading: this.local.loading })}
         <table class="${classnames({
           'hidden': this.local.data.length === 0,
         })}">
           <thead class="">
-            <tr class="" style="width: ${tableWidthPx};">
-            ${headerRow.map(({ key, value }) => {
-              return html`<th class="sticky top-0 bg-white border-black border-solid border-x-2 border-b-2 px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll">${key}</th>`
+            <tr class="">
+            ${this.headerRow.filter(this.filterFields).map(({ field }) => {
+              return html`<th class="sticky top-0 bg-white border-black border-solid border-x-2 border-b-2 px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll">${field}</th>`
             })}
             </tr>
           </thead>
           <tbody class="">
             <tr class="${classnames({
               'p-3': true,
-              'hidden': this.local.activePositions[0] === 0,
+              'hidden': typeof this.local.activePositions.startRowNumber === 'number'
+                ? this.local.activePositions.startRowNumber === 0
+                : true,
             })}"
               data-is-navigation=true >
                 <td>
@@ -35221,11 +32524,10 @@ class TabularComponent extends Component {
                 </td>
             </tr>
             ${this.local.data.map((row, index) => {
-              const id = row.find(d => d.key === 'id')?.value || -1
+              const id = row.id || -1
               const selected = this.local.selected === id
               return html`
                 <tr onclick=${() => this.setSelected({ row })}
-                  style="width: ${tableWidthPx};"
                   data-is-row=true
                   class="${classnames({
                     selected,
@@ -35237,13 +32539,13 @@ class TabularComponent extends Component {
                     'text-white': selected,
                     'hover:bg-black': selected,
                   })}">
-                  ${row.filter(this.filterKeys).map(({key, value}) => {
-                    return html`<td
-                        class="inline-block border-black border-solid border px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll"
-                      >
-                        ${value}
-                      </td>`
-                  })}
+                ${this.headerRow.filter(this.filterFields).map(({ field }) => {
+                  return html`<td
+                    class="border-black border-solid border px-3 whitespace-nowrap w-[150px] h-[30px] overflow-scroll"
+                  >
+                    ${row[field]}
+                  </td>`
+                })}
                 </tr>
               `
             })}
@@ -35265,11 +32567,8 @@ class TabularComponent extends Component {
   }
 
   newActivePositions ({ activePositions }) {
-    return Array.isArray(activePositions) &&
-      (
-        this.local.activePositions[0] !== activePositions[0] ||
-        this.local.activePositions[1] !== activePositions[1]
-      )
+    return this.local.activePositions?.startRowNumber !== activePositions?.startRowNumber ||
+        this.local.activePositions?.endRowNumber !== activePositions?.endRowNumber
   }
 
   update ({
@@ -35277,8 +32576,9 @@ class TabularComponent extends Component {
     data,
     selected,
     activePositions,
+    loadMoreDirty,
+    loading,
     doNotScrollIntoView=false,
-    loadMoreDirty=false,
   }) {
     let update = false
     if (this.local.loadMoreDirty !== loadMoreDirty) {
@@ -35304,45 +32604,17 @@ class TabularComponent extends Component {
       laodData({ url })
       update = true
     }
+    if (this.local.loading !== loading) {
+      this.local.loading = loading
+      update = true
+    }
     return update
   }
 
-  async loadData ({ url }) {
-    this.db = await Db(this.local)
-    window.db = this.db
-    parse(url, {
-      download: true,
-      complete: async (results) => {
-        const {data} = results
-        const header = data[0]
-        const rows = data.slice(1).map((row) => {
-          return row.map((value, index) => {
-            return{
-              key: header[index],
-              value,
-            }
-          }).map(this.transformValues)
-        })
-        for (const row of rows) {
-          await this.db.putRow({ row })
-        }
-        this.local.rowCount = this.db.rowCount()
-        this.emit('tabular:data:loaded', {
-          data: rows.slice(0, this.local.pageCount),
-          db: this.db,
-        })
-      }
-    })
-  }
-
   setSelected ({ row }) {
-    const rowObj = row.reduce((acc, curr) => {
-      acc[curr.key] = curr.value
-      return acc
-    }, {})
-    let { id } = rowObj
+    let { id } = row
     if (this.local.selected === id) id = null
-    this.emit('tabular:data:selected', { ...rowObj, id })
+    this.emit('tabular:row:selected', { ...row, id })
   }
 
   afterupdate (element) {
@@ -35355,7 +32627,7 @@ class TabularComponent extends Component {
         continuity = this.element.querySelector('tbody tr:nth-child(1)')
       }
       this.local.loadMoreDirty = false
-      continuity.scrollIntoView()
+      if (continuity) continuity.scrollIntoView()
     }
     const selected = element.querySelector('.selected')
     if (!selected) return
@@ -35379,4 +32651,4 @@ class TabularComponent extends Component {
 }
 
 module.exports = TabularComponent
-},{"./loading.js":134,"bytewise":31,"choo/component":37,"choo/html":38,"classnames":41,"level":70,"papaparse":94}]},{},[2]);
+},{"./loading.js":93,"choo/component":11,"choo/html":12,"classnames":15,"tabular-archive":83}]},{},[2]);
