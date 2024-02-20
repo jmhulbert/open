@@ -1,7 +1,13 @@
 ---
 title: "Open Redcedar Active Analyses Page"
 author:  "Contributors: Joey Hulbert,... "
-output: html_document
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+    toc_depth: 3
 ---
 
 |            |            |            |            |

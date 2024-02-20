@@ -1,8 +1,13 @@
 ---
 title: "gssurgo data analysis"
 author: 'Contributors: Joey Hulbert,...'
-date: "2023-06-09"
-output: html_document
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+    toc_depth: 3
 ---
 
 |            |            |            |            |
