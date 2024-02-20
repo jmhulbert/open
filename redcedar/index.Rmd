@@ -41,6 +41,8 @@ Anyone is welcome to contribute to these analyses. Together as a community, we a
 
 * Current contributors
   + Joey Hulbert, Postdoctoral Researcher, Washington State University
+  + Brendan Farrell, Clockwork Micro
+  + Rubén Rodriguez, private web software consultancy
   + *Your name here*
 
 
@@ -48,23 +50,23 @@ Anyone is welcome to contribute to these analyses. Together as a community, we a
 
 Visit the tabs below to learn more about the tools to get involved. 
 
-##### Slack Workspace
-
-You can join our [Slack Workspace](https://foresthealthwatch.slack.com) at this [link](https://join.slack.com/t/foresthealthwatch/shared_invite/zt-1suutb6ab-FAbH_voxmxZI2PpIFZND0A).
-
-Note that you need a Slack account to join the Slack Community.
-
-##### Miroboard
-
-Join us in [Miro](https://miro.com/app/board/uXjVMUusqtk=/?share_link_id=629830355424) to brainstorm and map out ideas. 
-
-You do not need a Miro account to access the board, but having an account may be helpful for linking contributions. 
-
 ##### Github Repository
 
 This webpage and the project list below are hosted in a [github repository](https://github.com/jmhulbert/open). 
 
 Anyone is welcome to collaborate to add or make changes to the [github repository (https://github.com/jmhulbert/open)](https://github.com/jmhulbert/open). The content on this page is compiled using R Markdown.
+
+##### Slack Workspace
+
+We previously used a slack workspace, but because it is unpaid, it is not that useful for seeing past progress. Contact us if you're interested in working together in Slack. 
+
+Note that you need a Slack account to join the Slack Community.
+
+##### Miroboard
+
+Contact us if you're interested in working together to brainstorm and map out ideas. 
+
+You do not need a Miro account to access the board, but having an account may be helpful for linking contributions. 
 
 
 ####

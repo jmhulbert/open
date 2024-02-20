@@ -16,7 +16,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r message=FALSE,warning=FALSE}
 library(tidyverse)
-library(elevatr)
+
 library(randomForest)
 library(caret)
 library(rpart)
@@ -24,6 +24,145 @@ library(knitr)
 library(corrplot)
 ```
 
+```{r}
+library(sf)
+library(elevatr)
+library(spatialEco)
+library(geodata)
+```
+
+
 # Approach
 
+The overall approach is to model empirical data collected by community scientists with ancillary topo data to identify important predictors of western redcedar dieback.
+
+## Data Wrangling
+
+### Import iNat Data - Empirical Tree Points (Response variables)
+
+The steps for wrangling the iNat [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
+
+```{r}
+#data <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv')
+
+data <- read.csv("~/ServerFiles/open/redcedar/data/data-modified.csv") #offline
+```
+
+### Spatial Data
+
+```{r}
+wgs84 <- "EPSG:4326"
+utm10 <- "EPSG:26910"
+```
+
+```{r}
+setwd("~/ServerFiles/open/redcedar/analyses/random-forests/topo")
+dat.dir <- file.path(getwd(),"spatial.data")
+data.dir.ex <-file.path("~/Volumes/TimeSync2TB/Data/Postdoc/R/Redcedar/Topo")
+```
+
+#### Country Boundary
+
+
+
+```{r}
+## hashtagged out because files already created previously
+#bdy <- st_as_sf(gadm("USA",level=0,path=tempdir(),version="latest",resolution=1))
+#geo.ext <- ext(bdy)
+#bdy <- st_transform(bdy,utm10)
+#st_write(bdy,file.path(dat.dir,"bdy.shp"))
+```
+
+
+
+```{r}
+bdy <- st_read(file.path(dat.dir,"bdy.shp"))
+#geo.ext.utm <- ext(426491.16359116934, 4539238.107476624, 720515.3028644782, 5316783.940854039,xy=TRUE) #project extent in EPSG:26910 decimals set to only include WA and OR.
+```
+
+#### 100m reference raster in UTM10 projection
+
+```{r}
+ref <- rast(ext(bdy),resolution=c(100,100),crs=crs(utm10))
+```
+
+#### x,y coordinate rasters
+
+```{r}
+#xcoord <- ref
+#xcoord[] <- xyFromCell(ref, 1:ncell(ref))[,1]
+#xcoord <- mask(xcoord, vect(bdy)) 
+#names(xcoord) <- "xcoord"
+#writeRaster(xcoord, file.path(dat.dir, "xcoord.tif")) 
+
+#ycoord <- ref
+#ycoord[] <- xyFromCell(ref, 1:ncell(ref))[,2]
+#ycoord <- mask(ycoord, vect(bdy)) 
+#names(ycoord) <- "ycoord"
+#writeRaster(ycoord, file.path(dat.dir, "ycoord.tif")) 
+```
+
+#### Elevation (100m or 30 arc sec)
+
+```{r}
+elev <- elevation_30s(country="USA", path=tempdir())
+geo.ext <- ext(-125.0000, 43.000, -113.0000, 50.0000,xy=TRUE) # project bounds data in EPSG:4326 decimals set to only include WA and OR. Also included xy=TRUE because they're in (ymin,xmin,ymax,xmax) order. 
+elev <- crop(elev,geo.ext)
+elev <- mask(project(elev, ref, method="bilinear"), vect(bdy))
+names(elev) <- "elev"
+writeRaster(elev, file.path(dat.dir.ex, "elev.tif"),overwrite=TRUE)  
+```
+
+
+#### Heat Load Index
+
+```{r}
+heat.load <- hli(elev)
+names(heat.load) <- "hli"
+writeRaster(heat.load, file.path(dat.dir.ex, "hli.tif"), overwrite=TRUE)  
+```
+
+#### Topographic Roughness  
+
+```{r}
+rough <- tri(elev, exact=FALSE)
+names(rough) <- "tri"
+writeRaster(rough, file.path(dat.dir.ex, "tri.tif"), overwrite=TRUE) 
+```
+
+
+#### Surface Relief Ratio 3x3 matrix
+
+```{r}
+rr <- srr(elev, 3) 
+names(rr) <- "srr"
+writeRaster(rr, file.path(dat.dir.ex, "srr3.tif"), overwrite=TRUE)
+```
+
+
+#### topographic position
+
+```{r}
+tp <- tpi(elev, 3)
+names(tp) <- "tpi"
+writeRaster(tp, file.path(dat.dir.ex, "tpi3.tif"),overwrite=TRUE)  
+```
+
+# Slope * COS(Aspect)
+
+```{r}
+sa <- terra::terrain(elev, v=c("slope", "aspect"), unit="degrees")
+  scosa <- terra::lapp(c(sa[[1]], sa[[2]]), fun = sa.trans)
+    names(scosa) <- "scosa"
+      writeRaster(scosa, file.path(dat.dir.ex, "scosa.tif"), 
+	              overwrite=TRUE)  
+```
+
+```{r}
+#library(sf)
+#wgs84 <- st_crs("EPSG:4326")
+#htrs96 <- st_crs("EPSG:3765")
+#etrs <- st_crs("EPSG:3035")
+#dsf <- st_transform(st_as_sf(d, coords = c("xcoord", "ycoord"),crs = htrs96), etrs)    
+```
 

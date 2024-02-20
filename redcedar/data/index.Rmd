@@ -25,7 +25,7 @@ The purpose of this page is to provide a dataset to use in subsequent analyses. 
 
 ### iNaturalist Data
 
-Observation data were downloaded from the [Wester Redcedar Dieback Map](https://www.inaturalist.org/projects/western-redcedar-dieback-map) project on April 19, 2023 after 2232 observations were shared.
+Observation data were downloaded from the [Wester Redcedar Dieback Map](https://www.inaturalist.org/projects/western-redcedar-dieback-map) project on January 13, 2024 after 2600+ observations were shared.
 
 The query used to download data is as follows "quality_grade=any&identifications=any&projects%5B%5D=western-redcedar-dieback-map". All 'Geo' columns and 'Observation Fields' columns were included. 
 
@@ -38,7 +38,7 @@ The query used to download data is as follows "quality_grade=any&identifications
 ### Read data from csv into R
 
 ```{r}
-data <- read.csv("observations-4.19.23.csv")
+data <- read.csv("WRDM-full-data-1.13.24.csv")
 ```
 
 
@@ -107,7 +107,8 @@ data$field.optional...site.location.description [data$field.optional...site.loca
 
 
 ```{r}
-data <- data %>% filter(field.tree.canopy.symptoms!="Candelabra top or very old spike top (old growth)") %>% mutate(binary.tree.canopy.symptoms=field.tree.canopy.symptoms) %>% mutate(reclassified.tree.canopy.symptoms=field.tree.canopy.symptoms) %>% droplevels()
+data <- data %>% filter(field.tree.canopy.symptoms!="Candelabra top or very old spike top (old growth)") %>% mutate(binary.tree.canopy.symptoms=field.tree.canopy.symptoms) %>% mutate(reclassified.tree.canopy.symptoms=field.tree.canopy.symptoms) %>% 
+mutate(ordinal.tree.canopy.symptoms=field.tree.canopy.symptoms) %>% droplevels()
 ```
 
 
@@ -128,6 +129,15 @@ data$reclassified.tree.canopy.symptoms <- recode_factor(data$reclassified.tree.c
 data$reclassified.tree.canopy.symptoms <- as.factor(data$reclassified.tree.canopy.symptoms)
 ```
 
+
+```{r}
+ordinal_level_key <- c("Healthy" = "Healthy", "Thinning Canopy" = "Unhealthy", "New Dead Top (red or brown needles still attached)" = "Unhealthy", "Old Dead Top (needles already gone)" = "Unhealthy", "Tree is dead" = "Dead", "Multiple Symptoms (please list in Notes)" = "Unhealthy", "Extra Cone Crop" = "Unhealthy", "Browning Canopy" = "Unhealthy","Branch Dieback or 'Flagging'" = "Unhealthy", "Other (please describe in Notes)" = "Unhealthy", "Yellowing Canopy" = "Unhealthy")
+
+data$ordinal.tree.canopy.symptoms <- recode_factor(data$ordinal.tree.canopy.symptoms, !!!ordinal_level_key)
+#levels(binary$field.tree.canopy.symptoms)
+data$ordinal.tree.canopy.symptoms <- as.factor(data$ordinal.tree.canopy.symptoms)
+```
+
 Reclassified response variable classes
 
 Binary Response (2 categories)
@@ -141,6 +151,31 @@ Filtered response (5 categories)
 ```{r}
 data %>% group_by(reclassified.tree.canopy.symptoms) %>% count()
 ```
+
+Ordinal Response (3 categories)
+
+```{r}
+data %>% group_by(ordinal.tree.canopy.symptoms) %>% count()
+```
+
+Create Binary response for dead top
+
+```{r}
+data$top.dieback[data$reclassified.tree.canopy.symptoms=="Dead Top"] <- "Yes"
+data$top.dieback[data$reclassified.tree.canopy.symptoms!="Dead Top"] <- "No"
+data$top.dieback <- as.factor(data$top.dieback)
+levels(data$top.dieback)
+```
+
+Create Binary response for thinning
+
+```{r}
+data$thinning[data$reclassified.tree.canopy.symptoms=="Thinning Canopy"] <- "Yes"
+data$thinning[data$reclassified.tree.canopy.symptoms!="Thinning Canopy"] <- "No"
+data$thinning <- as.factor(data$thinning)
+levels(data$thinning)
+```
+
 
 ## Export Data
 

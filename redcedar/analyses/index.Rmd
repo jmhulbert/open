@@ -40,4 +40,11 @@ Below is a list of active analyses and contributors. Each analysis has a page de
     + Soil Depth
   + Explore one of the above or add your jam here..
 
+## To-Do list
+  + extract topo data
+  + random forests with topo data
+  + explore utility of Brendan's ggsurgo dataset
+  + random forests with combined datasets
+  + explore other random forests flavors (ranger and probabilistic forests rather than rf right out of the box)
+  + map distribution of the 600 trees with water table depth data 
 

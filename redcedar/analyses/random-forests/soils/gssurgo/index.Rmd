@@ -1,6 +1,6 @@
 ---
 title: "gssurgo data analysis"
-author: 'Contributors: Brendan Farrell, Joey Hulbert,...'
+author: 'Contributors: Joey Hulbert,...'
 date: "2023-06-09"
 output: html_document
 ---
@@ -17,74 +17,91 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r message=FALSE,warning=FALSE}
 library(tidyverse)
-#devtools::install_github("lhmrosso/XPolaris")
 library(randomForest)
 library(caret)
 library(rpart)
 library(knitr)
 library(corrplot)
+library(soilDB)
+library(ggmap)
 ```
 
 
 # Approach
 
-Brendan Farrell of Clockwork Micro extracted gssurgo soils data for the [data](https://jmhulbert.github.io/open/redcedar/data) using mixed methods as described below. 
+A [previous analysis](./archived/) with ssurgo data collected through a combination of qGIS and PostGIS was completed and archived. 
 
-* Three tables from gssurgo data were joined with iNat data
-  + muaggat
-  + component 
+The approach of the analysis on this page was to explore methods for integrating ssurgo data with r commands. 
 
+Unfortunately, working with the soilDB package requires queries to interact with the 'soil data access' SDA web service using a language similar to SQL. Therefore, the below code may not look like r code. 
 
-Then we completed a random forest analysis with the gssurgo soils data to see what variables were the most important for classifying trees as healthy or unhealthy. 
+> TIMEOUT - pausing this analysis :)
 
+* Resources
+  + [Soil Data Access tutorial](https://ncss-tech.github.io/AQP/soilDB/SDA-tutorial.html)
+  + [Tutorials to extract data with R program](https://sdmdataaccess.nrcs.usda.gov/QueryHelp.aspx)
+  + [Soil data access query help](https://nasis.sc.egov.usda.gov/NasisReportsWebSite/limsreport.aspx?report_name=SDA-SQL_Library_Home)
 
 # Data Wrangling
 
-### Import iNat Data - Empirical Tree Points (Response variables)
+## Import iNat Data - Empirical Tree Points (Response variables)
 
-The steps for wrangling the [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).**More details coming soon.** 
+The steps for wrangling the [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
 
-In general, Brendan used a combination of qGIS and PostGIS to extract soils data for the 2223 trees in the [data](https://jmhulbert.github.io/open/redcedar/data). 
-
-
-Brendan joined datasets so iNat fields were already present in gssurgo dataset provided. 
 
 ```{r}
 #data <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv')
-#data <- read.csv('~/ServerFiles/open/redcedar/data/data-modified.csv')
+data <- read.csv('~/ServerFiles/open/redcedar/data/data-modified.csv') #ofline
 #data$id <- as.character(data$id)
 ```
 
+## Prepare iNat data for soilDB
 
 ```{r}
-gssurgo <- read.csv('~/ServerFiles/open/redcedar/data/datamatched20230620-resaved.csv')
+#names(data[c(1:30)])
+#summary(as.factor(data$place_country_name))
 ```
 
-There were a few rows that were not seperating correctly because of symbols in the description or field notes. We need to come abck to them, but for now we dropped the following observations
-
-* ID 
-  + "85409524" 
-  + "108776647" 
-  + "127848282"
+Filter data to observations in USA
 
 ```{r}
-gssurgo <- gssurgo %>% filter(id!="85409524" & id!="108776647" & id!="127848282")
+data <- data %>% filter(place_country_name=="United States")
 ```
 
 
+```{r eval=FALSE, include=FALSE}
+#map <- get_map(bbox = c(left = min(data$longitude), bottom = min(data$latitude), right = max(data$longitude),                  top = max(data$latitude)), zoom = 2)
+```
+
 ```{r}
-gssurgo$binary.tree.canopy.symptoms <- as.factor(gssurgo$binary.tree.canopy.symptoms)
+ggplot(data) +
+  geom_point(aes(x = longitude, y = latitude), color = "blue") +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  theme_minimal()
 ```
 
 
-# Random Forests Analyses
-
-More information coming soon
-
-# Data Visualization
-
 ```{r}
-ggplot(gssurgo,aes(wtdepaprjunmin,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw()
+gps <- data[c(2,24,25)] #subset data to only include id and gps coordinates
+gps <- gps %>% `colnames<-`(c("id","lat","lon"))
+#gps$lat <- round(gps$lat,5)
+#gps$lon <- round(gps$lon,6)
 ```
 
+```{r}
+# test dataset
+coordinates <- data.frame(
+  lat = c(35.2812, 35.2965, 35.4237),
+  lon = c(-120.6766, -120.8565, -120.7661)
+)
+```
+
+
+```{r}
+# need to figure out how to use fetchSDA correctly
+# gssurgo <- fetchSDA_spatial(coordinates)
+?fetchSDA_spatial
+#gssurgo <- get_component_from_SDA(gps)
+```
 

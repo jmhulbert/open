@@ -33,7 +33,7 @@ The overall approach is to model empirical data collected by community scientist
 
 ### Import iNat Data - Empirical Tree Points (Response variables)
 
-The steps for wrangling the [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
+The steps for wrangling the iNat [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
 
 ```{r}
 data <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv')

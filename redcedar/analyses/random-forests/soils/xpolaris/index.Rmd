@@ -30,7 +30,7 @@ library(corrplot)
 
 We used the [XPolaris package](https://github.com/lhmrosso/XPolaris) to download POLARIS soils tiles and extract data for 13 soils variables for all of our data points. 
 
-Instructions for using this pacakage are available at https://github.com/lhmrosso/XPolaris
+Instructions for using this package are available at https://github.com/lhmrosso/XPolaris
 
 Then we completed a random forest analysis with the soils data to see what variables were the most important for classifying trees as healthy or unhealthy. 
 
@@ -41,7 +41,9 @@ Then we completed a random forest analysis with the soils data to see what varia
 The steps for wrangling the [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
 
 ```{r}
-data <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv')
+#data <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv')
+
+data <- read.csv("~/ServerFiles/open/redcedar/data/data-modified.csv") #offline  
 ```
 
 #### Format and export for collecting Polaris soil data with xPolaris Package
@@ -63,7 +65,7 @@ gps.soils <- gps.soils %>% filter (lat!="")
 xplot(gps.soils)
 ```
 
-We may need to filter out canada in later analysis, not sure if tiffs from BC will have data or be helpfu.
+We may need to filter out canada in later analysis, not sure if tiffs from BC will have data or be helpful.
 Everything above 49th parallel was NA. Filtering the Canada data beforehand might save some time in the data wrangling.
 
 
@@ -71,11 +73,11 @@ Tiles for soils data were downloaded using the ximages command in the package. 5
 
 ```{r cache=TRUE}
 #mean_soils_data <- ximages(locations = gps.soils,
-#                      statistics = c('mean'),
-#                      variables = c('ph','om','clay','sand','silt','bd','hb','n','ksat','theta_r','theta_s','lambda','alpha'),
+#                     statistics = c('mean'),
+#                     variables = c('ph','om','clay','sand','silt','bd','hb','n','ksat','theta_r','theta_s','lambda','alpha'),
 #                      layersdepths = c('0_5','5_15','15_30','30_60','60_100','100_200'))
-#                     #variables = c('ph','om','clay','sand','silt','bd','hb','n','ksat','theta_r','theta_s'),
-#                      #layersdepths = c('0_5','5_15','15_30','30_60','60_100','100_200'))
+                    #variables = c('ph','om','clay','sand','silt','bd','hb','n','ksat','theta_r','theta_s'),
+                      #layersdepths = c('0_5','5_15','15_30','30_60','60_100','100_200'))
 
 
 # These data were saved in our tempdir() at  "/var/folders/nc/nbgmcl_s2_q4d2r3z08pnjz00000gn/T//RtmpPU3kIf"
@@ -116,7 +118,10 @@ Data were saved as [xsoil_data_all_13_vars.csv](https://github.com/jmhulbert/ope
 Remove specific soil variables not useful as explanatory variables (e.g. latitutde)
 
 ```{r}
-soils <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/xsoil_data_all_13_vars.csv')
+#soils <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/xsoil_data_all_13_vars.csv')
+
+soils <- read.csv('~/ServerFiles/open/redcedar/data/xsoil_data_all_13_vars.csv') #offline
+
 ```
 
 ```{r}
@@ -317,8 +322,42 @@ plot(importance)
 ```
 
 ```{r corr plot, fig.height=20, fig.width=20}
-corr.binary <- cor(binary.full[-79])
+corr.binary <- cor(binary.full[-c(79:83)])
 corrplot(corr.binary,order='AOE')
 ```
 
 
+
+## Data Visualization 
+
+```{r}
+ggplot(binary.full,aes(clay_0_5,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw() +labs(x="Clay 0-5 cm")
+```
+
+```{r}
+ggplot(binary.full,aes(clay_15_30,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw() +labs(x="Clay 15-30 cm")
+```
+
+
+```{r}
+ggplot(binary.full,aes(clay_30_60,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw() +labs(x="Clay 30-60 cm")
+```
+
+
+```{r}
+ggplot(binary.full,aes(clay_100_200,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw() +labs(x="Clay 100-200 cm")
+```
+
+
+```{r}
+ggplot(binary.full,aes(sand_100_200,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw() +labs(x="sand 100-200 cm")
+```
+
+```{r}
+ggplot(binary.full,aes(ksat_60_100,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw() +labs(x="ksat 60-100 cm")
+```
+
+
+```{r}
+ggplot(binary.full,aes(bd_60_100,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw() +labs(x="bd 60-100 cm")
+```

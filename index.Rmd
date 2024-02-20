@@ -21,6 +21,7 @@ The purpose of this repository is to provide a space for our open data analyses
 
 * Open analyses
   + [Redcedar Dieback](./redcedar/)
+  + [Urban Redcedar Dieback](https://jmhulbert.github.io/redhot/)
   
 ### Contact
 

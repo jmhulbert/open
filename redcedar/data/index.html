@@ -386,7 +386,7 @@ final dataset will be exported here.</p>
 <div id="inaturalist-data" class="section level3">
 <h3>iNaturalist Data</h3>
 <p>Observation data were downloaded from the <a href="https://www.inaturalist.org/projects/western-redcedar-dieback-map">Wester
-Redcedar Dieback Map</a> project on April 19, 2023 after 2232
+Redcedar Dieback Map</a> project on January 13, 2024 after 2600+
 observations were shared.</p>
 <p>The query used to download data is as follows
 “quality_grade=any&amp;identifications=any&amp;projects%5B%5D=western-redcedar-dieback-map”.
@@ -409,18 +409,30 @@ project.</p>
 ## # Groups:   binary.tree.canopy.symptoms [2]
 ##   binary.tree.canopy.symptoms     n
 ##   &lt;fct&gt;                       &lt;int&gt;
-## 1 Healthy                      1275
-## 2 Unhealthy                     954</code></pre>
+## 1 Healthy                      1480
+## 2 Unhealthy                    1086</code></pre>
 <p>Filtered response (5 categories)</p>
 <pre><code>## # A tibble: 5 × 2
 ## # Groups:   reclassified.tree.canopy.symptoms [5]
 ##   reclassified.tree.canopy.symptoms     n
 ##   &lt;fct&gt;                             &lt;int&gt;
-## 1 Healthy                            1275
-## 2 Thinning Canopy                     309
-## 3 Dead Top                            259
-## 4 Tree is Dead                        109
-## 5 Other                               277</code></pre>
+## 1 Healthy                            1480
+## 2 Thinning Canopy                     341
+## 3 Dead Top                            298
+## 4 Tree is Dead                        129
+## 5 Other                               318</code></pre>
+<p>Ordinal Response (3 categories)</p>
+<pre><code>## # A tibble: 3 × 2
+## # Groups:   ordinal.tree.canopy.symptoms [3]
+##   ordinal.tree.canopy.symptoms     n
+##   &lt;fct&gt;                        &lt;int&gt;
+## 1 Healthy                       1480
+## 2 Unhealthy                      957
+## 3 Dead                           129</code></pre>
+<p>Create Binary response for dead top</p>
+<pre><code>## [1] &quot;No&quot;  &quot;Yes&quot;</code></pre>
+<p>Create Binary response for thinning</p>
+<pre><code>## [1] &quot;No&quot;  &quot;Yes&quot;</code></pre>
 </div>
 <div id="export-data" class="section level2">
 <h2>Export Data</h2>

@@ -1,0 +1,103 @@
+---
+title: "archived gssurgo data analysis"
+author: 'Contributors: Brendan Farrell, Joey Hulbert,...'
+date: "2023-06-09"
+output: html_document
+---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE,warning=FALSE}
+library(tidyverse)
+#devtools::install_github("lhmrosso/XPolaris")
+library(randomForest)
+library(caret)
+library(rpart)
+library(knitr)
+library(corrplot)
+```
+
+
+# Approach
+
+Brendan Farrell of Clockwork Micro extracted gssurgo soils data for the [data](https://jmhulbert.github.io/open/redcedar/data) using mixed methods as described below. 
+
+* Three tables from gssurgo data were joined with iNat data
+  + muaggat
+  + component 
+
+**Please Note** (*as Joey understands it*) The muaggat and componet data were extracted by joining tables based on the MUKEY value for each datapoint. However, there were multiple component variables for each MUKEY so the component data is currently unusable. Extracting component data from actual points is needed, if possible. 
+
+The goal is to compelete random forest analysis with the gssurgo soils data to see what variables were the most important for classifying trees as healthy or unhealthy. 
+
+
+
+
+
+# Data Wrangling
+
+### Import iNat Data - Empirical Tree Points (Response variables)
+
+The steps for wrangling the [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
+
+In general, Brendan used a combination of qGIS and PostGIS to extract soils data for the 2223 trees in the [data](https://jmhulbert.github.io/open/redcedar/data). 
+
+Brendan joined datasets so iNat fields were already present in gssurgo dataset provided. 
+
+```{r}
+#data <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv')
+#data <- read.csv('~/ServerFiles/open/redcedar/data/data-modified.csv')
+#data$id <- as.character(data$id)
+```
+
+
+```{r}
+gssurgo <- read.csv('~/ServerFiles/open/redcedar/data/datamatched20230620-resaved.csv')
+```
+
+There were a few rows that were not seperating correctly because of symbols in the description or field notes. We need to come back to them, but for now we dropped the following observations
+
+* ID 
+  + "85409524" 
+  + "108776647" 
+  + "127848282"
+
+```{r}
+gssurgo <- gssurgo %>% filter(id!="85409524" & id!="108776647" & id!="127848282")
+```
+
+
+```{r}
+gssurgo$binary.tree.canopy.symptoms <- as.factor(gssurgo$binary.tree.canopy.symptoms)
+```
+
+
+
+```{r}
+gssurgo.no.comp <- gssurgo[-c(75:182)] %>% distinct(.keep_all = TRUE)
+```
+
+# Random Forests Analyses
+
+More information coming soon
+
+# Data Visualization
+
+```{r}
+ggplot(gssurgo.no.comp,aes(wtdepaprjunmin,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw() +labs(x="Water Table Depth (April-June Minimum)")
+```
+^^ missing 1639 obs
+
+```{r}
+ggplot(gssurgo.no.comp,aes(wtdepannmin,fill=binary.tree.canopy.symptoms)) +geom_density(alpha=0.5) + scale_fill_manual(name="Tree Condition",values=c("#7fcdbb","#fe9929")) +theme_bw() +labs(x="Water Table Depth (April-June Minimum)")
+```
+
+^^ missing 951 obs
