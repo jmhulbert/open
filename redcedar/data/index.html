@@ -11,7 +11,7 @@
 
 <meta name="author" content="Contributors: Joey Hulbert,…" />
 
-<meta name="date" content="2024-02-19" />
+<meta name="date" content="2024-02-21" />
 
 <title>Data Wrangling</title>
 
@@ -1487,7 +1487,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">Data Wrangling</h1>
 <h4 class="author">Contributors: Joey Hulbert,…</h4>
-<h4 class="date">2024-02-19</h4>
+<h4 class="date">2024-02-21</h4>
 
 </div>
 
@@ -1529,14 +1529,21 @@ observations were shared.</p>
 “quality_grade=any&amp;identifications=any&amp;projects%5B%5D=western-redcedar-dieback-map”.
 All ‘Geo’ columns and ‘Observation Fields’ columns were included.</p>
 </div>
-<div id="read-data-from-csv-into-r" class="section level3">
-<h3>Read data from csv into R</h3>
+<div id="read-data-from-csv-into-r" class="section level2">
+<h2>Read data from csv into R</h2>
 </div>
-<div id="clean-data" class="section level3">
-<h3>Clean Data</h3>
+<div id="clean-data" class="section level2">
+<h2>Clean Data</h2>
 <p>Some of the iNat project questions changed since it was created so
 some we need to adjust the answers to be more consistent throughout the
 project.</p>
+<pre><code>## Warning in `[&lt;-.factor`(`*tmp*`, data$field.optional...tree.size == &quot;Very small
+## (can wrap a single hand around stem)&quot;, : invalid factor level, NA generated</code></pre>
+<div id="reclassify-co-factors" class="section level3">
+<h3>Reclassify co-factors</h3>
+<div id="convert-percent-to-proportion" class="section level4">
+<h4>Convert Percent to Proportion</h4>
+</div>
 </div>
 <div id="reclassify-response-variables" class="section level3">
 <h3>Reclassify response variables</h3>
@@ -1570,6 +1577,7 @@ project.</p>
 <pre><code>## [1] &quot;No&quot;  &quot;Yes&quot;</code></pre>
 <p>Create Binary response for thinning</p>
 <pre><code>## [1] &quot;No&quot;  &quot;Yes&quot;</code></pre>
+</div>
 </div>
 <div id="export-data" class="section level2">
 <h2>Export Data</h2>

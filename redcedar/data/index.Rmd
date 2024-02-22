@@ -41,14 +41,14 @@ The query used to download data is as follows "quality_grade=any&identifications
 #Query quality_grade=any&identifications=any&projects[]=western-redcedar-dieback-map Columns id, observed_on_string, observed_on, time_observed_at, time_zone, user_id, user_login, user_name, created_at, updated_at, quality_grade, license, url, image_url, sound_url, tag_list, description, num_identification_agreements, num_identification_disagreements, captive_cultivated, oauth_application_id, place_guess, latitude, longitude, positional_accuracy, private_place_guess, private_latitude, private_longitude, public_positional_accuracy, geoprivacy, taxon_geoprivacy, coordinates_obscured, positioning_method, positioning_device, place_town_name, place_county_name, place_state_name, place_country_name, place_admin1_name, place_admin2_name, species_guess, scientific_name, common_name, iconic_taxon_name, taxon_id, field:tree+canopy+symptoms, field:optional+-+did+the+tree+have+heat+damage, field:percent+canopy+affected+%28%25%29, field:dieback+percent, field:number+of+additional+unhealthy+trees+%28of+same+species%29+in+area+%28within+sight%29, field:percent+of+trees+%28of+same+species%29+within+sight+that+are+unhealthy, field:other+factors+-+are+there+signs+or+symptoms+of+insect%2C+diseases%2C+or+other+damage%3F, field:optional+-+what+%27other+factors%27+were+observed%3F, field:optional+-+tree+size, field:optional+-+site+type, field:optional+-+site%2Flocation+description, field:optional+-+site%2Farea+disturbance+level, field:optional+-+site+hydrology, field:optional+-+access+to+water, field:optional+-+slope+position, field:optional+-+were+there+any+other+unhealthy+plant+species+on+the+site%3F, field:optional+-+timing+of+symptoms+estimate, field:optional+-+estimated+time+spent+to+make+this+observation+%28%23+of+minutes%29, field:optional+-+can+we+follow+up+with+you%3F, field:notes 
 ```
 
-### Read data from csv into R
+## Read data from csv into R
 
 ```{r}
 data <- read.csv("WRDM-full-data-1.13.24.csv")
 ```
 
 
-### Clean Data
+## Clean Data
 
 ```{r}
 # Note - should we exclude observations with poor GPS accuracy? 
@@ -103,11 +103,66 @@ data$field.optional...tree.size[data$field.optional...tree.size=="Large"] <- "La
 data$field.optional...tree.size[data$field.optional...tree.size=="Medium"] <- "Medium (can wrap arms around trunk)"
 data$field.optional...tree.size[data$field.optional...tree.size=="Small"] <- "Small (can wrap hands around trunk)"
 data$field.optional...tree.size[data$field.optional...tree.size=="Very Large"] <- "Very Large (would take many people to wrap arms around trunk)"
+data$field.optional...tree.size[data$field.optional...tree.size=="Very small (can wrap a single hand around stem)"] <- "Very Small (can wrap a single hand around stem)"
 ```
 
 ```{r}
 data$field.optional...site.location.description [data$field.optional...site.location.description =="Yard or open park grounds"] <- "Urban yard or open park grounds"
 ```
+
+### Reclassify co-factors
+
+
+```{r}
+data$field.percent.canopy.affected.... <- as.factor(data$field.percent.canopy.affected....)
+data$field.percent.canopy.affected....[data$field.percent.canopy.affected....=="1-25% of the crown is unhealthy"] <- "1-29% of the canopy is unhealthy"
+data$field.percent.canopy.affected....[data$field.percent.canopy.affected....=="Healthy (0%)"] <- "Healthy, no dieback(0%)"
+data$field.percent.canopy.affected....[data$field.percent.canopy.affected....=="Healthy (0% is unhealthy)"] <- "Healthy, no dieback(0%)"
+data$field.percent.canopy.affected....[data$field.percent.canopy.affected....=="more than 75% of the crown is unhealthy"] <- "60-99% of the canopy is unhealthy"
+data <- data %>% droplevels()
+
+data$Percent.Dieback.Modified[data$field.percent.canopy.affected....=="Healthy, no dieback(0%)"] <- 0
+data$Percent.Dieback.Modified[data$field.percent.canopy.affected....=="1-29% of the canopy is unhealthy"] <- 1
+data$Percent.Dieback.Modified[data$field.percent.canopy.affected....=="30-59% of the canopy is unhealthy"] <- 30
+data$Percent.Dieback.Modified[data$field.percent.canopy.affected....=="60-99% of the canopy is unhealthy"] <- 60
+data$Percent.Dieback.Modified[data$field.percent.canopy.affected....=="tree is dead"] <- 100
+#data$field.dieback.percent[is.na(data$field.dieback.percent)] <- data$Percent.Dieback.Modified
+
+data$field.percent.canopy.affected....[data$Percent.Dieback.Modified==100] <- "tree is dead" #there were a couple healthy trees with 100 dieback somehow..
+
+has.dieback.percent <- data %>% filter(!is.na(field.dieback.percent))
+does.not.have.dieback.percent <- data %>% filter(is.na(field.dieback.percent)) 
+
+has.dieback.percent$user.estimated.dieback <- "Yes"
+does.not.have.dieback.percent$user.estimated.dieback <- "No"
+
+does.not.have.dieback.percent$field.dieback.percent <- does.not.have.dieback.percent$Percent.Dieback.Modified
+
+data <- rbind(has.dieback.percent,does.not.have.dieback.percent)
+
+data$field.dieback.percent[data$field.dieback.percent<0] <- 0 # not sure why but there was one -2 percent dieback value
+
+```
+
+#### Convert Percent to Proportion
+
+```{r}
+data <- data %>% mutate(field.dieback.prop = (field.dieback.percent/100))
+```
+
+
+```{r}
+data <- data %>% mutate(tree.size.simplified=field.optional...tree.size) 
+```
+
+```{r}
+tree_size_level_key <- c("Very Small (can wrap a single hand around stem)" = "Small", "Small (can wrap hands around trunk)" = "Small", "Medium (can wrap arms around trunk)" = "Medium", "Large (too big to wrap arms around trunk)" = "Large", "Very Large (would take many people to wrap arms around trunk)" = "Large","Other"="Other","No selection"="No Selection")
+
+data$tree.size.simplified <- recode_factor(data$tree.size.simplified, !!!tree_size_level_key)
+data$tree.size.simplified <- as.factor(data$tree.size.simplified)
+```
+
+
 
 ### Reclassify response variables
 
