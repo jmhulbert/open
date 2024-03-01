@@ -226,6 +226,7 @@ data$top.dieback[data$reclassified.tree.canopy.symptoms=="Dead Top"] <- "Yes"
 data$top.dieback[data$reclassified.tree.canopy.symptoms!="Dead Top"] <- "No"
 data$top.dieback <- as.factor(data$top.dieback)
 levels(data$top.dieback)
+summary(data$top.dieback)
 ```
 
 Create Binary response for thinning
@@ -235,8 +236,18 @@ data$thinning[data$reclassified.tree.canopy.symptoms=="Thinning Canopy"] <- "Yes
 data$thinning[data$reclassified.tree.canopy.symptoms!="Thinning Canopy"] <- "No"
 data$thinning <- as.factor(data$thinning)
 levels(data$thinning)
+summary(data$thinning)
 ```
 
+Create Binary response for dead tree
+
+```{r}
+data$dead.tree[data$reclassified.tree.canopy.symptoms=="Tree is Dead"] <- "Yes"
+data$dead.tree[data$reclassified.tree.canopy.symptoms!="Tree is Dead"] <- "No"
+data$dead.tree <- as.factor(data$dead.tree)
+levels(data$dead.tree)
+summary(data$dead.tree)
+```
 
 ## Export Data
 
