@@ -31,6 +31,8 @@ library(corrplot)
 
 > Please note this analysis and R Markdown document are in still in development :)
 
+View a previous, archived, version of this analysis [here](https://https://jmhulbert.github.io/open/redcedar/analyses/climate/archived/).
+
 # Approach
 
 The overall approach is to model empirical data collected by community scientists with ancillary climate data to identify important predictors of western redcedar dieback.
@@ -52,7 +54,7 @@ Data were subset to include only gps information to use in collecting ancillary 
 ```{r}
 gps <- data[c(2,24,25)] #subset data to only include id and gps coordinates
 gps <- rename(gps,lat = latitude) %>% `colnames<-`(c("ID2","lat","long")) %>% mutate(el = ".") #columns were ranamed to match format for ClimateNA tool.
-#write.csv(gps,file="/Users/redcedar/ServerFiles/open/redcedar/data/gps2232.csv") #named 2232 because data was downloaded after having 2232 observations
+#write.csv(gps,file="/Users/redcedar/ServerFiles/open/redcedar/data/gps2566.csv") #named 2232 because data was downloaded after having 2232 observations
 ```
 
 #### Remove iNaturalist columns and explanatory variables not needed for random forest models
@@ -72,75 +74,77 @@ random.forest.data <- data %>% select(-c(
 ,"field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight."
 ,"field.percent.of.trees..of.same.species..within.sight.that.are.unhealthy"
 ,"field.optional...access.to.water"
-,"observed_on_string"                                                                     
-,"observed_on"                                                                            
-,"time_observed_at"                                                                       
-,"time_zone"                                                                              
-,"user_id"                                                                                
-,"user_login"                                                                             
-,"created_at"                                                                             
+,"observed_on_string"                                                 
+,"observed_on"               
+,"time_observed_at"               
+,"time_zone"
+,"user_id"  
+,"user_login"     
+,"created_at"     
 ,"updated_at"
-,"quality_grade"                                                                          
-,"license"                                                                                
-,"url"                                                                                    
-,"image_url"                                                                              
-,"sound_url"                                                                              
-,"tag_list"                                                                               
-,"description"                                                                            
-,"num_identification_agreements"                                                          
-,"num_identification_disagreements"                                                       
-,"captive_cultivated"                                                                     
-,"oauth_application_id"                                                                   
-,"place_guess"                                                                            
-,"latitude"                                                                               
-,"longitude"                                                                              
-,"positional_accuracy"                                                                    
-,"private_place_guess"                                                                    
-,"private_latitude"                                                                       
-,"private_longitude"                                                                      
-,"public_positional_accuracy"                                                             
-,"geoprivacy"                                                                             
-,"taxon_geoprivacy"                                                                       
-,"coordinates_obscured"                                                                   
-,"positioning_method"                                                                     
-,"positioning_device"                                                                     
-,"place_town_name"                                                                        
-,"place_county_name"                                                                      
-,"place_state_name"                                                                       
-,"place_country_name"                                                                     
-,"place_admin1_name"                                                                      
-,"place_admin2_name"                                                                      
-,"species_guess"                                                                          
+,"quality_grade"  
+,"license"  
+,"url"
+,"image_url"
+,"sound_url"
+,"tag_list" 
+,"description"    
+,"num_identification_agreements"    
+,"num_identification_disagreements" 
+,"captive_cultivated"   
+,"oauth_application_id" 
+,"place_guess"    
+,"latitude" 
+,"longitude"
+,"positional_accuracy"  
+,"private_place_guess"  
+,"private_latitude"     
+,"private_longitude"    
+,"public_positional_accuracy" 
+,"geoprivacy"     
+,"taxon_geoprivacy"     
+,"coordinates_obscured" 
+,"positioning_method"   
+,"positioning_device"   
+,"place_town_name"
+,"place_county_name"    
+,"place_state_name"     
+,"place_country_name"   
+,"place_admin1_name"    
+,"place_admin2_name"    
+,"species_guess"  
 ,"scientific_name"
-,"common_name"                                                                            
-,"iconic_taxon_name"                                                                      
-,"taxon_id"          
+,"common_name"    
+,"iconic_taxon_name"    
+,"taxon_id"    
 ,"field.other.factors...are.there.signs.or.symptoms.of.insect..diseases..or.other.damage."
 ,"field.optional...what..other.factors..were.observed." 
-, "field.optional...were.there.any.other.unhealthy.plant.species.on.the.site."             
- ,"field.optional...timing.of.symptoms.estimate"                                           
-, "field.optional...estimated.time.spent.to.make.this.observation....of.minutes."          
+, "field.optional...were.there.any.other.unhealthy.plant.species.on.the.site." 
+ ,"field.optional...timing.of.symptoms.estimate" 
+, "field.optional...estimated.time.spent.to.make.this.observation....of.minutes."
 , "field.optional...can.we.follow.up.with.you."
 ,"field.notes"
 ,"field.tree.canopy.symptoms"
 ,"field.dieback.percent"
+,"field.tree.number..from.google.map..if.applicable"
+,"Percent.Dieback.Modified"                         
+,"user.estimated.dieback"                           
+,"field.dieback.prop"                               
+,"tree.size.simplified"  
 ))
 ```
-
-
-
 
 ### Import Normals Data
 
 Climate data then extracted with ClimateNA tool following the below process. Data were downloaded for the iNat GPS locations using the ClimateNA Tool.
 
-ClimateNA version 7.40 -
+ClimateNA version 7.42 -
 
 * Climate data extraction process with ClimateNA
   + Convert data into format for climateNA use (see above)
   + In ClimateNA
     + Normal Data
-      + Select input file (browse to gps2232 file)
+      + Select input file (browse to gps2566 file)
       + Choose 'More Normal Data'
         + Select 'Normal_1991_2020.nrm'
       + Choose 'All variables(265)'
@@ -162,7 +166,7 @@ Variables
 
 
 ```{r}
-normals <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/gps2232_Normal_1991_2020MSY.csv')
+normals <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/gps2566_Normal_1991_2020MSY.csv')
 colnames(normals) <- str_c("norm_",colnames(normals)) #change column names - not to be confused with decadal data
 normals <- rename(normals, id = norm_ID2) #rename column 'ID2' (changed for ClimateNA tool) back to 'id'
 ```
@@ -171,9 +175,9 @@ Remove specific climate variables not useful as explanatory variables (e.g. norm
 
 ```{r}
 normals <-normals %>% select(-c(
-"norm_X"                                                                                   
-,"norm_Latitude"                                                                            
-,"norm_Longitude"                                                                           
+"norm_X"
+,"norm_Latitude"
+,"norm_Longitude"
 ,"norm_Elevation"))
 ```
 
@@ -190,6 +194,7 @@ normals.monthly <- normals[c(1,2:181)]
 normals.seasonal <- normals[c(1,182:241)]
 normals.annual <- normals[c(1,242:266)]
 ```
+
 
 Remove variables with variables that have near zero standard deviations (entire column is same value)
 
@@ -237,6 +242,8 @@ normals.annual.nearzerovar <- na.omit(normals.annual.nearzerovar)
 
 There were `length(normals.monthly)-length(normals.annual.nearzerovar` monthly variables with zero standard deviation. 
 
+### Join iNat and Climate Data
+
 ```{r}
 full <- left_join(random.forest.data,normals.nearzerovar,by="id")
 monthly <- left_join(random.forest.data,normals.monthly.nearzerovar,by="id")
@@ -244,27 +251,31 @@ seasonal <- left_join(random.forest.data,normals.seasonal.nearzerovar,by="id")
 annual <- left_join(random.forest.data,normals.annual.nearzerovar,by="id")
 ```
 
-Remove other explanatory variable categories (binary or five categories)
+#### Remove Dead Trees 
+
+Note we chose to remove dead trees after joining with climate data in case we change our mind about that.
+
+Generally, removing dead trees may make the most sense biologically, because we're not sure about the cause of the dead tree. Later we could test if there is a good climate variable for classifiny trees as alive or dead. 
 
 ```{r}
-five.cats.full <- full %>% select(-c("binary.tree.canopy.symptoms","id"))
-five.cats.monthly <- monthly %>% select(-c("binary.tree.canopy.symptoms","id"))
-five.cats.seasonal <- seasonal %>% select(-c("binary.tree.canopy.symptoms","id"))
-five.cats.annual <- annual %>% select(-c("binary.tree.canopy.symptoms","id"))
+full <- full %>% filter(reclassified.tree.canopy.symptoms!="Tree is Dead") %>% droplevels()
+monthly <- monthly %>% filter(reclassified.tree.canopy.symptoms!="Tree is Dead") %>% droplevels()
+seaonal <- seasonal %>% filter(reclassified.tree.canopy.symptoms!="Tree is Dead") %>% droplevels()
+annual <- annual %>% filter(reclassified.tree.canopy.symptoms!="Tree is Dead") %>% droplevels()
 ```
 
-```{r}
-five.cats.full$reclassified.tree.canopy.symptoms <- as.factor(five.cats.full$reclassified.tree.canopy.symptoms)
-five.cats.monthly$reclassified.tree.canopy.symptoms <- as.factor(five.cats.monthly$reclassified.tree.canopy.symptoms)
-five.cats.seasonal$reclassified.tree.canopy.symptoms <- as.factor(five.cats.seasonal$reclassified.tree.canopy.symptoms)
-five.cats.annual$reclassified.tree.canopy.symptoms <- as.factor(five.cats.annual$reclassified.tree.canopy.symptoms)
-```
+
+### Prepare data for random forest models
+
+Remove other explanatory variable categories (binary only)
+
+
 
 ```{r}
-binary.full <- full %>% select(-c("reclassified.tree.canopy.symptoms","id"))
-binary.monthly <- monthly %>% select(-c("reclassified.tree.canopy.symptoms","id"))
-binary.seasonal <- seasonal %>% select(-c("reclassified.tree.canopy.symptoms","id"))
-binary.annual <- annual %>% select(-c("reclassified.tree.canopy.symptoms","id"))
+binary.full <- full %>% select(-c("reclassified.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
+binary.monthly <- monthly %>% select(-c("reclassified.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
+binary.seasonal <- seasonal %>% select(-c("reclassified.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
+binary.annual <- annual %>% select(-c("reclassified.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
 ```
 
 ```{r}
@@ -274,50 +285,13 @@ binary.seasonal$binary.tree.canopy.symptoms <- as.factor(binary.seasonal$binary.
 binary.annual$binary.tree.canopy.symptoms <- as.factor(binary.annual$binary.tree.canopy.symptoms)
 ```
 
-
-
 ## Compare model errors
-
-### Five categorical response
-
-#### Full Normal Model
-
-```{r five class full rf model, cache=TRUE}
-set.seed(71)
-rf <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.full, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
-rf
-```
-
-#### Monthly Normal Model
-
-```{r five class monthly rf model, cache=TRUE}
-set.seed(71)
-rf.monthly <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.monthly, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
-rf.monthly
-```
-
-#### Seasonal Normal Model
-
-```{r five class seasonal rf model, cache=TRUE}
-set.seed(71)
-rf.seasonal <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.seasonal, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
-rf.seasonal
-```
-
-#### Annual Normal Model
-
-```{r five class annual rf model, cache=TRUE}
-set.seed(71)
-rf.annual <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.annual, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
-rf.annual
-```
-
 
 ### Binary Normal Model
 
 #### Full Normal Model
 
-```{r binary full rf model, cache=TRUE}
+```{r binary full rf model}
 set.seed(71)
 rf <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.full, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf
@@ -325,7 +299,7 @@ rf
 
 #### Monthly Normal Model
 
-```{r binary monthly rf model, cache=TRUE}
+```{r binary monthly rf model}
 set.seed(71)
 rf.monthly <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.monthly, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.monthly
@@ -333,7 +307,7 @@ rf.monthly
 
 #### Seasonal Normal Model
 
-```{r binary seasonal rf model, cache=TRUE}
+```{r binary seasonal rf model}
 set.seed(71)
 rf.seasonal <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.seasonal, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.seasonal
@@ -341,7 +315,7 @@ rf.seasonal
 
 #### Annual Normal Model
 
-```{r binary annual rf model, cache=TRUE}
+```{r binary annual rf model}
 set.seed(71)
 rf.annual <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.annual, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.annual
@@ -354,10 +328,6 @@ Summary of model performance
 |            |            |            |            |
 |:----------:|:----------:|:----------:|:----------:|
 |Response | Explanatory | Vars tried split | OOB Error|
-|5 class | Full | 14 | 43.43 |
-|5 class | Monthly | 12 | 43.25 |
-|5 class | Seasonal | 7 | 43.52 |
-|5 class | Annual | 4 | 43.88 |
 |Binary | Full | 14 | 32.35|
 |Binary | Monthly | 12 | 32.57 |
 |Binary | Seasonal | 7 | 32.79 |
@@ -388,6 +358,7 @@ mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100, 1)
 
 ## now make a fancy looking plot that shows the MDS axes and the variation:
 mds.values <- mds.stuff$points
+str(mds.values)
 mds.data <- data.frame(Sample=rownames(mds.values),
   X=mds.values[,1],
   Y=mds.values[,2],
@@ -416,8 +387,6 @@ varImpPlot(rf.annual)
 importance <- varImp(rf.annual,scale=TRUE)
 plot(importance)
 ```
-
-
 
 
 ### Binary Response, Seasonal Explanatory Variable
@@ -476,6 +445,22 @@ reduced.binary.seasonal <- seasonal %>% select(c(
 corr.binary.seasonal.reduced <- cor(reduced.binary.seasonal[c(2:13)])
 corrplot(corr.binary.seasonal.reduced,method='number')
 ```
+
+
+
+
+
+## Discussion
+
+Explore if monthly, seaonal, or annual data are best fit for binomial distributed glmm. 
+
+Identify which climate variable grouping is best fit
+then run random forests for determining which climate variable is best for predicting top dieback
+
+then run random forests for predicting which climate variable is best for predicting thinning
+
+
+
 
 
 

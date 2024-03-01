@@ -1,0 +1,481 @@
+---
+title: "Random Forest - Climate Data Analysis - Archived"
+author: "Contributors: Joey Hulbert,... "
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+    toc_depth: 3
+---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r include=FALSE}
+library(tidyverse)
+library(randomForest)
+library(caret)
+library(rpart)
+library(knitr)
+library(corrplot)
+```
+
+
+> Please note this analysis and R Markdown document are in still in development :)
+
+# Approach
+
+The overall approach is to model empirical data collected by community scientists with ancillary climate data to identify important predictors of western redcedar dieback.
+
+## Data Wrangling
+
+### Import iNat Data - Empirical Tree Points (Response variables)
+
+The steps for wrangling the iNat [data](https://jmhulbert.github.io/open/redcedar/data) are described [here](https://jmhulbert.github.io/open/redcedar/data).
+
+```{r}
+data <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/data-modified.csv')
+```
+
+#### Format and export for collecting climateNA data
+
+Data were subset to include only gps information to use in collecting ancillary data.
+
+```{r}
+gps <- data[c(2,24,25)] #subset data to only include id and gps coordinates
+gps <- rename(gps,lat = latitude) %>% `colnames<-`(c("ID2","lat","long")) %>% mutate(el = ".") #columns were ranamed to match format for ClimateNA tool.
+#write.csv(gps,file="/Users/redcedar/ServerFiles/open/redcedar/data/gps2566.csv") #named 2232 because data was downloaded after having 2232 observations
+```
+
+#### Remove iNaturalist columns and explanatory variables not needed for random forest models
+
+```{r}
+random.forest.data <- data %>% select(-c(
+"X"
+,"user_name"
+,"field.optional...site.type"
+,"field.optional...site.hydrology"
+,"field.optional...site.location.description"
+,"field.optional...site.area.disturbance.level"
+,"field.optional...tree.size"
+,"field.optional...slope.position"
+,"field.optional...did.the.tree.have.heat.damage"
+,"field.percent.canopy.affected...."
+,"field.number.of.additional.unhealthy.trees..of.same.species..in.area..within.sight."
+,"field.percent.of.trees..of.same.species..within.sight.that.are.unhealthy"
+,"field.optional...access.to.water"
+,"observed_on_string"                                                                     
+,"observed_on"                                                                            
+,"time_observed_at"                                                                       
+,"time_zone"                                                                              
+,"user_id"                                                                                
+,"user_login"                                                                             
+,"created_at"                                                                             
+,"updated_at"
+,"quality_grade"                                                                          
+,"license"                                                                                
+,"url"                                                                                    
+,"image_url"                                                                              
+,"sound_url"                                                                              
+,"tag_list"                                                                               
+,"description"                                                                            
+,"num_identification_agreements"                                                          
+,"num_identification_disagreements"                                                       
+,"captive_cultivated"                                                                     
+,"oauth_application_id"                                                                   
+,"place_guess"                                                                            
+,"latitude"                                                                               
+,"longitude"                                                                              
+,"positional_accuracy"                                                                    
+,"private_place_guess"                                                                    
+,"private_latitude"                                                                       
+,"private_longitude"                                                                      
+,"public_positional_accuracy"                                                             
+,"geoprivacy"                                                                             
+,"taxon_geoprivacy"                                                                       
+,"coordinates_obscured"                                                                   
+,"positioning_method"                                                                     
+,"positioning_device"                                                                     
+,"place_town_name"                                                                        
+,"place_county_name"                                                                      
+,"place_state_name"                                                                       
+,"place_country_name"                                                                     
+,"place_admin1_name"                                                                      
+,"place_admin2_name"                                                                      
+,"species_guess"                                                                          
+,"scientific_name"
+,"common_name"                                                                            
+,"iconic_taxon_name"                                                                      
+,"taxon_id"          
+,"field.other.factors...are.there.signs.or.symptoms.of.insect..diseases..or.other.damage."
+,"field.optional...what..other.factors..were.observed." 
+, "field.optional...were.there.any.other.unhealthy.plant.species.on.the.site."             
+ ,"field.optional...timing.of.symptoms.estimate"                                           
+, "field.optional...estimated.time.spent.to.make.this.observation....of.minutes."          
+, "field.optional...can.we.follow.up.with.you."
+,"field.notes"
+,"field.tree.canopy.symptoms"
+,"field.dieback.percent"
+))
+```
+
+
+
+
+### Import Normals Data
+
+Climate data then extracted with ClimateNA tool following the below process. Data were downloaded for the iNat GPS locations using the ClimateNA Tool.
+
+ClimateNA version 7.42 -
+
+* Climate data extraction process with ClimateNA
+  + Convert data into format for climateNA use (see above)
+  + In ClimateNA
+    + Normal Data
+      + Select input file (browse to gps2566 file)
+      + Choose 'More Normal Data'
+        + Select 'Normal_1991_2020.nrm'
+      + Choose 'All variables(265)'
+      + Specify output file
+
+* Grouping explored
+  + data averaged over 30 year normals (1991-2020)
+
+Variables
+
+**Note the below analysis uses the iNat data with 1510 observations. Amazing!**
+
+* Response variables included in this analysis
+  + Tree canopy symptoms (binary)
+
+* Explanatory variables included
+  + Climate data
+    + 30yr normals 1991-2020 (265 variables - annual, seasonal, monthly)
+
+
+```{r}
+normals <- read.csv('https://github.com/jmhulbert/open/raw/main/redcedar/data/gps2566_Normal_1991_2020MSY.csv')
+colnames(normals) <- str_c("norm_",colnames(normals)) #change column names - not to be confused with decadal data
+normals <- rename(normals, id = norm_ID2) #rename column 'ID2' (changed for ClimateNA tool) back to 'id'
+```
+
+Remove specific climate variables not useful as explanatory variables (e.g. norm_Latitutde)
+
+```{r}
+normals <-normals %>% select(-c(
+"norm_X"                                                                                   
+,"norm_Latitude"                                                                            
+,"norm_Longitude"                                                                           
+,"norm_Elevation"))
+```
+
+
+#### Seperate climate variable groupings
+
+Normals data for 265 variables were downloaded for each point 
+Monthly - 180 variables represented data averaged over months for the 30 year period
+Seasonal - 60 variables respresented data averaged over 3 month seasons (4 seasons) for 30 year period
+Annual - 20 variables represented data averaged for all years during 30 year period
+
+```{r}
+normals.monthly <- normals[c(1,2:181)]
+normals.seasonal <- normals[c(1,182:241)]
+normals.annual <- normals[c(1,242:266)]
+```
+
+Remove variables with variables that have near zero standard deviations (entire column is same value)
+
+Full
+
+```{r include=FALSE}
+normals.nearzerovar <- normals[,-nearZeroVar(normals)] #write.csv(combo.decade.filtered,file="./data/troubleshoot.csv")
+normals.nearzerovar <-as.data.frame(unclass(normals.nearzerovar),stringsAsFactors=TRUE) #change all chars to factors
+normals.nearzerovar <- na.omit(normals.nearzerovar)
+```
+
+There were `length(normals)-length(normals.nearzerovar` monthly variables with zero standard deviation is 
+Dropping columns with near zero standard deviation removed `length(normals)-length(normals.nearzerovar` monthly climate variables. 
+
+
+Monthly
+
+```{r include=FALSE}
+normals.monthly.nearzerovar <- normals.monthly[,-nearZeroVar(normals.monthly)] #write.csv(combo.decade.filtered,file="./data/troubleshoot.csv")
+normals.monthly.nearzerovar <-as.data.frame(unclass(normals.monthly.nearzerovar),stringsAsFactors=TRUE) #change all chars to factors
+normals.monthly.nearzerovar <- na.omit(normals.monthly.nearzerovar)
+```
+
+There were `length(normals.monthly)-length(normals.monthly.nearzerovar` monthly variables with zero standard deviation is 
+Dropping columns with near zero standard deviation removed `length(normals.monthly)-length(normals.monthly.nearzerovar` monthly climate variables. 
+
+
+Seasonal
+
+```{r include=FALSE}
+normals.seasonal.nearzerovar <- normals.seasonal[,-nearZeroVar(normals.seasonal)] #write.csv(combo.decade.filtered,file="./data/troubleshoot.csv")
+normals.seasonal.nearzerovar <-as.data.frame(unclass(normals.seasonal.nearzerovar),stringsAsFactors=TRUE) #change all chars to factors
+normals.seasonal.nearzerovar <- na.omit(normals.seasonal.nearzerovar)
+```
+
+There were `length(normals.monthly)-length(normals.seasonal.nearzerovar` monthly variables with zero standard deviation is 
+
+Annual
+
+```{r include=FALSE}
+normals.annual.nearzerovar <- normals.annual[,-nearZeroVar(normals.annual)] #write.csv(combo.decade.filtered,file="./data/troubleshoot.csv")
+normals.annual.nearzerovar <-as.data.frame(unclass(normals.annual.nearzerovar),stringsAsFactors=TRUE) #change all chars to factors
+normals.annual.nearzerovar <- na.omit(normals.annual.nearzerovar)
+```
+
+There were `length(normals.monthly)-length(normals.annual.nearzerovar` monthly variables with zero standard deviation. 
+
+```{r}
+full <- left_join(random.forest.data,normals.nearzerovar,by="id")
+monthly <- left_join(random.forest.data,normals.monthly.nearzerovar,by="id")
+seasonal <- left_join(random.forest.data,normals.seasonal.nearzerovar,by="id")
+annual <- left_join(random.forest.data,normals.annual.nearzerovar,by="id")
+```
+
+Remove other explanatory variable categories (binary or five categories)
+
+```{r}
+five.cats.full <- full %>% select(-c("binary.tree.canopy.symptoms","id"))
+five.cats.monthly <- monthly %>% select(-c("binary.tree.canopy.symptoms","id"))
+five.cats.seasonal <- seasonal %>% select(-c("binary.tree.canopy.symptoms","id"))
+five.cats.annual <- annual %>% select(-c("binary.tree.canopy.symptoms","id"))
+```
+
+```{r}
+five.cats.full$reclassified.tree.canopy.symptoms <- as.factor(five.cats.full$reclassified.tree.canopy.symptoms)
+five.cats.monthly$reclassified.tree.canopy.symptoms <- as.factor(five.cats.monthly$reclassified.tree.canopy.symptoms)
+five.cats.seasonal$reclassified.tree.canopy.symptoms <- as.factor(five.cats.seasonal$reclassified.tree.canopy.symptoms)
+five.cats.annual$reclassified.tree.canopy.symptoms <- as.factor(five.cats.annual$reclassified.tree.canopy.symptoms)
+```
+
+```{r}
+binary.full <- full %>% select(-c("reclassified.tree.canopy.symptoms","id"))
+binary.monthly <- monthly %>% select(-c("reclassified.tree.canopy.symptoms","id"))
+binary.seasonal <- seasonal %>% select(-c("reclassified.tree.canopy.symptoms","id"))
+binary.annual <- annual %>% select(-c("reclassified.tree.canopy.symptoms","id"))
+```
+
+```{r}
+binary.full$binary.tree.canopy.symptoms <- as.factor(binary.full$binary.tree.canopy.symptoms)
+binary.monthly$binary.tree.canopy.symptoms <- as.factor(binary.monthly$binary.tree.canopy.symptoms)
+binary.seasonal$binary.tree.canopy.symptoms <- as.factor(binary.seasonal$binary.tree.canopy.symptoms)
+binary.annual$binary.tree.canopy.symptoms <- as.factor(binary.annual$binary.tree.canopy.symptoms)
+```
+
+
+
+## Compare model errors
+
+### Five categorical response
+
+#### Full Normal Model
+
+```{r five class full rf model}
+set.seed(71)
+rf <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.full, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf
+```
+
+#### Monthly Normal Model
+
+```{r five class monthly rf model}
+set.seed(71)
+rf.monthly <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.monthly, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.monthly
+```
+
+#### Seasonal Normal Model
+
+```{r five class seasonal rf model}
+set.seed(71)
+rf.seasonal <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.seasonal, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.seasonal
+```
+
+#### Annual Normal Model
+
+```{r five class annual rf model}
+set.seed(71)
+rf.annual <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.annual, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.annual
+```
+
+
+### Binary Normal Model
+
+#### Full Normal Model
+
+```{r binary full rf model}
+set.seed(71)
+rf <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.full, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf
+```
+
+#### Monthly Normal Model
+
+```{r binary monthly rf model}
+set.seed(71)
+rf.monthly <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.monthly, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.monthly
+```
+
+#### Seasonal Normal Model
+
+```{r binary seasonal rf model}
+set.seed(71)
+rf.seasonal <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.seasonal, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.seasonal
+```
+
+#### Annual Normal Model
+
+```{r binary annual rf model}
+set.seed(71)
+rf.annual <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.annual, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.annual
+```
+
+
+
+Summary of model performance
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|Response | Explanatory | Vars tried split | OOB Error|
+|5 class | Full | 14 | 43.43 |
+|5 class | Monthly | 12 | 43.25 |
+|5 class | Seasonal | 7 | 43.52 |
+|5 class | Annual | 4 | 43.88 |
+|Binary | Full | 14 | 32.35|
+|Binary | Monthly | 12 | 32.57 |
+|Binary | Seasonal | 7 | 32.79 |
+|Binary | Annual | 4 | 33.02 |
+|            |            |            |            |
+
+
+## Identify important variables
+
+
+### Binary Response, Annual Explanatory Variable
+
+```{r}
+plot(rf.annual)
+```
+
+```{r fig.height=6,fig.width=9}
+#Below code copied from: https://github.com/StatQuest/random_forest_demo/blob/master/random_forest_demo.R as described here: https://www.youtube.com/watch?v=6EXPYzbfLCE
+
+## Start by converting the proximity matrix into a distance matrix. 
+
+distance.matrix <- as.dist(1-rf.annual$proximity)
+
+mds.stuff <- cmdscale(distance.matrix, eig=TRUE, x.ret=TRUE)
+
+## calculate the percentage of variation that each MDS axis accounts for...
+mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100, 1)
+
+## now make a fancy looking plot that shows the MDS axes and the variation:
+mds.values <- mds.stuff$points
+str(mds.values)
+mds.data <- data.frame(Sample=rownames(mds.values),
+  X=mds.values[,1],
+  Y=mds.values[,2],
+  Status=binary.annual$binary.tree.canopy.symptoms)
+
+ggplot(data=mds.data, aes(x=X, y=Y)) + 
+  geom_point(aes(color=Status),alpha=0.45) +  
+  stat_ellipse(geom="polygon",aes(fill=Status,color=Status),alpha=0.45) +
+  theme_bw() + 
+  scale_color_discrete() +
+  scale_fill_discrete() +
+  xlab(paste("MDS1 - ", mds.var.per[1], "%", sep="")) +
+  ylab(paste("MDS2 - ", mds.var.per[2], "%", sep="")) +
+  ggtitle("MDS plot using (1 - Random Forest Proximities)")
+
+#By default, the stat_ellipse function draws a 95% confidence level for a multivariate t-distribution. You can modify this level with level argument.
+
+#more info for ellipse https://r-charts.com/correlation/scatter-plot-ellipses-ggplot2/
+```
+
+```{r fig.height=9,fig.width=12}
+varImpPlot(rf.annual)
+```
+
+```{r}
+importance <- varImp(rf.annual,scale=TRUE)
+plot(importance)
+```
+
+
+
+
+### Binary Response, Seasonal Explanatory Variable
+
+```{r fig.height=9,fig.width=12}
+varImpPlot(rf.seasonal)
+```
+
+
+```{r corr plot, fig.height=20, fig.width=20}
+corr.binary.annual <- cor(binary.annual[c(2:25)])
+corrplot(corr.binary.annual,order='AOE')
+```
+
+
+Clearly all of the climate variables are highly correlated. 
+
+Lets pick the top performing metric in our random forests analyses, CMI and then any less correlated variables
+
+Below we can check the correlation of CMI, MAP, and DD_18
+
+
+```{r}
+reduced.binary.annual <- annual %>% select(c("binary.tree.canopy.symptoms","norm_MAP","norm_DD_18","norm_CMI"))
+```
+
+```{r}
+corr.binary.annual.reduced <- cor(reduced.binary.annual[c(2:4)])
+corrplot(corr.binary.annual.reduced,method='number')
+```
+
+
+Now we can check how the model performs with only these three climate variables
+
+```{r}
+reduced.binary.annual$binary.tree.canopy.symptoms <- as.factor(reduced.binary.annual$binary.tree.canopy.symptoms)
+```
+
+```{r reduced binary annual rf model, cache=TRUE}
+set.seed(71)
+rf.annual.reduced <- randomForest(binary.tree.canopy.symptoms ~ ., data=reduced.binary.annual, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.annual
+```
+
+It's hard to give up the seasonality data, but they are all highly correlated (data not shown) and if we look at the above importance plot for the seasonality data, the winter variables (norm_CMI_wt,norm_DD_18_wt, and norm_PPT_wt) all had the highest MeanDecrease Accuracy and Gini. Therefore, even if we chose to build the model on seasonal data, we would likely want to choose to use the winter values for each variable.  
+
+```{r include=FALSE}
+reduced.binary.seasonal <- seasonal %>% select(c(
+"binary.tree.canopy.symptoms"
+,"norm_PPT_sp","norm_PPT_at","norm_PPT_wt","norm_PPT_sm"
+,"norm_DD_18_sp","norm_DD_18_at","norm_DD_18_wt","norm_DD_18_sm"
+,"norm_CMI_sp","norm_CMI_at","norm_CMI_wt","norm_CMI_sm"))
+```
+
+```{r fig.height=10, fig.width=10, include=FALSE}
+corr.binary.seasonal.reduced <- cor(reduced.binary.seasonal[c(2:13)])
+corrplot(corr.binary.seasonal.reduced,method='number')
+```
+
+

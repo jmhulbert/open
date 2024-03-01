@@ -1,0 +1,29 @@
+---
+title: "Discussion"
+author: "Joey Hulbert"
+date: "Last Update: `r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+    toc_depth: 3
+---
+
+|            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|
+|[Redcedar](https://jmhulbert.github.io/open/redcedar)|[Data](https://jmhulbert.github.io/open/redcedar/data)|[ Analyses](https://jmhulbert.github.io/open/redcedar/analyses)|[Instructions](https://jmhulbert.github.io/open/redcedar/instructions)|
+|             |           |            |            |
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## WRDM 2.0
+
+Soil amendments (e.g. mulch)
+Soil health?
+Evidence of Pruning?
+Percent impermeable surface? 
