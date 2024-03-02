@@ -26,6 +26,13 @@ library(caret)
 library(rpart)
 library(knitr)
 library(corrplot)
+library(kableExtra)
+library(gghalves)
+library(patchwork)
+library(scales)
+library(glmmTMB)
+library(bbmle)
+library(DHARMa)
 ```
 
 
@@ -182,6 +189,15 @@ normals <-normals %>% select(-c(
 ```
 
 
+#### Remove Outliers
+
+For some reason there is one observation with a super neg cmi value (-10000 ish)
+
+```{r}
+normals <- normals %>% filter(norm_CMI>(-1000)) %>% droplevels()
+```
+
+
 #### Seperate climate variable groupings
 
 Normals data for 265 variables were downloaded for each point 
@@ -255,14 +271,17 @@ annual <- left_join(random.forest.data,normals.annual.nearzerovar,by="id")
 
 Note we chose to remove dead trees after joining with climate data in case we change our mind about that.
 
-Generally, removing dead trees may make the most sense biologically, because we're not sure about the cause of the dead tree. Later we could test if there is a good climate variable for classifiny trees as alive or dead. 
+Generally, removing dead trees may make the most sense biologically, because we're not sure about the cause of the dead tree. Later we could test if there is a good climate variable for classifying trees as alive or dead. 
 
 ```{r}
 full <- full %>% filter(reclassified.tree.canopy.symptoms!="Tree is Dead") %>% droplevels()
 monthly <- monthly %>% filter(reclassified.tree.canopy.symptoms!="Tree is Dead") %>% droplevels()
-seaonal <- seasonal %>% filter(reclassified.tree.canopy.symptoms!="Tree is Dead") %>% droplevels()
+seasonal <- seasonal %>% filter(reclassified.tree.canopy.symptoms!="Tree is Dead") %>% droplevels()
 annual <- annual %>% filter(reclassified.tree.canopy.symptoms!="Tree is Dead") %>% droplevels()
 ```
+
+
+
 
 
 ### Prepare data for random forest models
@@ -291,33 +310,33 @@ binary.annual$binary.tree.canopy.symptoms <- as.factor(binary.annual$binary.tree
 
 #### Full Normal Model
 
-```{r binary full rf model}
+```{r binary full rf model, cache=TRUE}
 set.seed(71)
-rf <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.full, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.full, ntree=1200, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf
 ```
 
 #### Monthly Normal Model
 
-```{r binary monthly rf model}
+```{r binary monthly rf model, cache=TRUE}
 set.seed(71)
-rf.monthly <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.monthly, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.monthly <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.monthly, ntree=1200, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.monthly
 ```
 
 #### Seasonal Normal Model
 
-```{r binary seasonal rf model}
+```{r binary seasonal rf model, cache=TRUE}
 set.seed(71)
-rf.seasonal <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.seasonal, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.seasonal <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.seasonal, ntree=1200, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.seasonal
 ```
 
 #### Annual Normal Model
 
-```{r binary annual rf model}
+```{r binary annual rf model, cache=TRUE}
 set.seed(71)
-rf.annual <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.annual, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.annual <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.annual, ntree=1200, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.annual
 ```
 
@@ -325,14 +344,14 @@ rf.annual
 
 Summary of model performance
 
-|            |            |            |            |
-|:----------:|:----------:|:----------:|:----------:|
-|Response | Explanatory | Vars tried split | OOB Error|
-|Binary | Full | 14 | 32.35|
-|Binary | Monthly | 12 | 32.57 |
-|Binary | Seasonal | 7 | 32.79 |
-|Binary | Annual | 4 | 33.02 |
-|            |            |            |            |
+|            |            |            |            |            |
+|:----------:|:----------:|:----------:|:----------:|:----------:|
+|Response | Grouping |Num Variables| Vars tried split | OOB Error|
+|Binary | Full | 225 | 14 | 31.3|
+|Binary | Monthly | 148 | 12 | 31.92 |
+|Binary | Seasonal | 54 | 7 | 31.88 |
+|Binary | Annual | 25 | 4 | 31.88 |
+|            |            |            |            |            |
 
 
 ## Identify important variables
@@ -343,6 +362,9 @@ Summary of model performance
 ```{r}
 plot(rf.annual)
 ```
+
+The error rate above may stabilize enough by 600-800 trees. May not be necessary to run 1200 trees. 
+
 
 ```{r fig.height=6,fig.width=9}
 #Below code copied from: https://github.com/StatQuest/random_forest_demo/blob/master/random_forest_demo.R as described here: https://www.youtube.com/watch?v=6EXPYzbfLCE
@@ -355,6 +377,10 @@ mds.stuff <- cmdscale(distance.matrix, eig=TRUE, x.ret=TRUE)
 
 ## calculate the percentage of variation that each MDS axis accounts for...
 mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100, 1)
+
+## remove NAs from reference data (they were dropped in model, but not data set)
+
+binary.annual <- na.omit(binary.annual) 
 
 ## now make a fancy looking plot that shows the MDS axes and the variation:
 mds.values <- mds.stuff$points
@@ -427,7 +453,7 @@ reduced.binary.annual$binary.tree.canopy.symptoms <- as.factor(reduced.binary.an
 
 ```{r reduced binary annual rf model, cache=TRUE}
 set.seed(71)
-rf.annual.reduced <- randomForest(binary.tree.canopy.symptoms ~ ., data=reduced.binary.annual, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
+rf.annual.reduced <- randomForest(binary.tree.canopy.symptoms ~ ., data=reduced.binary.annual, ntree=1200, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.annual
 ```
 
@@ -447,12 +473,83 @@ corrplot(corr.binary.seasonal.reduced,method='number')
 ```
 
 
+## GLMMs 
+
+Probability of a tree classified as unhealthy
+
+Response variable: category: *healthy, unhealthy*
+
+> Note dead trees were removed
 
 
+#### Healthy / Unhealthy
+
+```{r}
+annual$binary.tree.canopy.symptoms <- as.factor(annual$binary.tree.canopy.symptoms)
+
+binomial.cmi.annual <- glmmTMB(binary.tree.canopy.symptoms ~ norm_CMI,family=binomial,data=annual)
+```
+
+```{r}
+summary(binomial.cmi.annual)
+```
+
+```{r}
+ggplot(full,aes(norm_CMI,fill=binary.tree.canopy.symptoms))+geom_density(alpha=0.8)+theme_bw()+labs(fill="Tree Status")
+```
+
+
+
+#### Top Dieback / No Topdieback
+
+```{r}
+annual$top.dieback <- as.factor(annual$top.dieback)
+
+top.dieback.cmi.annual <- glmmTMB(top.dieback ~ norm_CMI,family=binomial,data=annual)
+```
+
+```{r}
+summary(top.dieback.cmi.annual)
+```
+
+```{r}
+ggplot(full,aes(norm_CMI,fill=top.dieback))+geom_density(alpha=0.8)+theme_bw()+labs(fill="Dead Top")
+```
+
+
+#### Thinning / no-thinning
+
+```{r}
+ggplot(full,aes(norm_CMI,fill=thinning))+geom_density(alpha=0.8)+theme_bw()+labs(fill="Thinning")
+```
+
+
+#### Dead / Alive
+
+
+```{r}
+full.with.dead <- left_join(random.forest.data,normals.nearzerovar,by="id") %>% filter(norm_CMI>(-1000)) %>% droplevels()
+```
+
+
+```{r}
+full.with.dead$dead.tree <- as.factor(full.with.dead$dead.tree)
+
+dead.tree.cmi.annual <- glmmTMB(dead.tree ~ norm_CMI,family=binomial,data=full.with.dead)
+```
+
+```{r}
+summary(dead.tree.cmi.annual)
+```
+
+
+```{r}
+ggplot(full.with.dead,aes(norm_CMI,fill=dead.tree))+geom_density(alpha=0.8)+theme_bw()+labs(fill="Tree is Dead")
+```
 
 ## Discussion
 
-Explore if monthly, seaonal, or annual data are best fit for binomial distributed glmm. 
+Explore if monthly, seasonal, or annual data are best fit for binomial distributed glmm. 
 
 Identify which climate variable grouping is best fit
 then run random forests for determining which climate variable is best for predicting top dieback

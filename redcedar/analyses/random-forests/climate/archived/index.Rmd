@@ -124,6 +124,11 @@ random.forest.data <- data %>% select(-c(
 ,"field.notes"
 ,"field.tree.canopy.symptoms"
 ,"field.dieback.percent"
+,"field.tree.number..from.google.map..if.applicable"
+,"Percent.Dieback.Modified"                         
+,"user.estimated.dieback"                           
+,"field.dieback.prop"                               
+,"tree.size.simplified"  
 ))
 ```
 
@@ -175,6 +180,15 @@ normals <-normals %>% select(-c(
 ,"norm_Latitude"                                                                            
 ,"norm_Longitude"                                                                           
 ,"norm_Elevation"))
+```
+
+
+#### Remove Outliers
+
+For some reason there is one observation with a super neg cmi value (-10000 ish)
+
+```{r}
+normals <- normals %>% filter(norm_CMI>(-1000)) %>% droplevels()
 ```
 
 
@@ -247,10 +261,10 @@ annual <- left_join(random.forest.data,normals.annual.nearzerovar,by="id")
 Remove other explanatory variable categories (binary or five categories)
 
 ```{r}
-five.cats.full <- full %>% select(-c("binary.tree.canopy.symptoms","id"))
-five.cats.monthly <- monthly %>% select(-c("binary.tree.canopy.symptoms","id"))
-five.cats.seasonal <- seasonal %>% select(-c("binary.tree.canopy.symptoms","id"))
-five.cats.annual <- annual %>% select(-c("binary.tree.canopy.symptoms","id"))
+five.cats.full <- full %>% select(-c("binary.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
+five.cats.monthly <- monthly %>% select(-c("binary.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
+five.cats.seasonal <- seasonal %>% select(-c("binary.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
+five.cats.annual <- annual %>% select(-c("binary.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
 ```
 
 ```{r}
@@ -261,10 +275,10 @@ five.cats.annual$reclassified.tree.canopy.symptoms <- as.factor(five.cats.annual
 ```
 
 ```{r}
-binary.full <- full %>% select(-c("reclassified.tree.canopy.symptoms","id"))
-binary.monthly <- monthly %>% select(-c("reclassified.tree.canopy.symptoms","id"))
-binary.seasonal <- seasonal %>% select(-c("reclassified.tree.canopy.symptoms","id"))
-binary.annual <- annual %>% select(-c("reclassified.tree.canopy.symptoms","id"))
+binary.full <- full %>% select(-c("reclassified.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
+binary.monthly <- monthly %>% select(-c("reclassified.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
+binary.seasonal <- seasonal %>% select(-c("reclassified.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
+binary.annual <- annual %>% select(-c("reclassified.tree.canopy.symptoms","id","ordinal.tree.canopy.symptoms","top.dieback","thinning","dead.tree"))
 ```
 
 ```{r}
@@ -282,7 +296,7 @@ binary.annual$binary.tree.canopy.symptoms <- as.factor(binary.annual$binary.tree
 
 #### Full Normal Model
 
-```{r five class full rf model}
+```{r five class full rf model, cache=TRUE}
 set.seed(71)
 rf <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.full, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf
@@ -290,7 +304,7 @@ rf
 
 #### Monthly Normal Model
 
-```{r five class monthly rf model}
+```{r five class monthly rf model, cache=TRUE}
 set.seed(71)
 rf.monthly <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.monthly, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.monthly
@@ -298,7 +312,7 @@ rf.monthly
 
 #### Seasonal Normal Model
 
-```{r five class seasonal rf model}
+```{r five class seasonal rf model, cache=TRUE}
 set.seed(71)
 rf.seasonal <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.seasonal, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.seasonal
@@ -306,7 +320,7 @@ rf.seasonal
 
 #### Annual Normal Model
 
-```{r five class annual rf model}
+```{r five class annual rf model, cache=TRUE}
 set.seed(71)
 rf.annual <- randomForest(reclassified.tree.canopy.symptoms ~ ., data=five.cats.annual, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.annual
@@ -317,7 +331,7 @@ rf.annual
 
 #### Full Normal Model
 
-```{r binary full rf model}
+```{r binary full rf model, cache=TRUE}
 set.seed(71)
 rf <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.full, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf
@@ -325,7 +339,7 @@ rf
 
 #### Monthly Normal Model
 
-```{r binary monthly rf model}
+```{r binary monthly rf model, cache=TRUE}
 set.seed(71)
 rf.monthly <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.monthly, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.monthly
@@ -333,7 +347,7 @@ rf.monthly
 
 #### Seasonal Normal Model
 
-```{r binary seasonal rf model}
+```{r binary seasonal rf model, cache=TRUE}
 set.seed(71)
 rf.seasonal <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.seasonal, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.seasonal
@@ -341,7 +355,7 @@ rf.seasonal
 
 #### Annual Normal Model
 
-```{r binary annual rf model}
+```{r binary annual rf model, cache=TRUE}
 set.seed(71)
 rf.annual <- randomForest(binary.tree.canopy.symptoms ~ ., data=binary.annual, ntree=2001, importance=TRUE, na.action=na.omit, proximity=TRUE)
 rf.annual
@@ -349,19 +363,20 @@ rf.annual
 
 
 
-Summary of model performance
+Summary of model performance 
+
 
 |            |            |            |            |
 |:----------:|:----------:|:----------:|:----------:|
 |Response | Explanatory | Vars tried split | OOB Error|
-|5 class | Full | 14 | 43.43 |
-|5 class | Monthly | 12 | 43.25 |
-|5 class | Seasonal | 7 | 43.52 |
-|5 class | Annual | 4 | 43.88 |
-|Binary | Full | 14 | 32.35|
-|Binary | Monthly | 12 | 32.57 |
-|Binary | Seasonal | 7 | 32.79 |
-|Binary | Annual | 4 | 33.02 |
+|5 class | Full | 14 | 42.56 |
+|5 class | Monthly | 12 | 42.6 |
+|5 class | Seasonal | 7 | 42.83 |
+|5 class | Annual | 4 | 42.79 |
+|Binary | Full | 14 | 31.61|
+|Binary | Monthly | 12 | 32.07 |
+|Binary | Seasonal | 7 | 32.58 |
+|Binary | Annual | 4 | 32.11 |
 |            |            |            |            |
 
 
@@ -373,6 +388,9 @@ Summary of model performance
 ```{r}
 plot(rf.annual)
 ```
+
+2001 trees is overkill because the error rate stabilizies after about 800 runs. 
+
 
 ```{r fig.height=6,fig.width=9}
 #Below code copied from: https://github.com/StatQuest/random_forest_demo/blob/master/random_forest_demo.R as described here: https://www.youtube.com/watch?v=6EXPYzbfLCE
@@ -386,9 +404,12 @@ mds.stuff <- cmdscale(distance.matrix, eig=TRUE, x.ret=TRUE)
 ## calculate the percentage of variation that each MDS axis accounts for...
 mds.var.per <- round(mds.stuff$eig/sum(mds.stuff$eig)*100, 1)
 
+## remove NAs from reference data (they were dropped in model, but not data set)
+
+binary.annual <- na.omit(binary.annual)
+
 ## now make a fancy looking plot that shows the MDS axes and the variation:
 mds.values <- mds.stuff$points
-str(mds.values)
 mds.data <- data.frame(Sample=rownames(mds.values),
   X=mds.values[,1],
   Y=mds.values[,2],
