@@ -1,0 +1,55 @@
+---
+title: "RedcedarRevisitStudy"
+output: html_document
+date: "2025-02-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+```
+
+
+## Welcome
+
+This is a r markdown document for an analysis with the redcedar revisit study data by jim1083 on iNatraulist. 
+
+### Import Data
+
+First, lets read the data into r
+```{r}
+revisit <- read.csv("./data/revisit.data.csv")
+wrdm <- read.csv("./data/wrdm.2.3.25.csv")
+```
+
+### Merge Data
+
+next we need to merge (join) the datasets based on the iNaturalist ID Number
+
+```{r}
+merged.data <- left_join(revisit,wrdm,by="id")
+```
+
+
+```{r}
+names(merged.data)
+```
+
+
+```{r}
+merged.data <- merged.data[c(1,21:25,71:93)]
+```
+
+```{r}
+merged.data <- merged.data %>% filter(field.2023...fall.seasonal.branch.browning.percent..0.100..<100)
+```
+
+
+```{r fig.height=5, fig.width=10}
+ggplot(merged.data,aes(field.2023...fall.seasonal.branch.browning.percent..0.100..,field.optional...access.to.water,fill=field.optional...access.to.water))+geom_boxplot()+coord_flip()+theme_bw()+guides(fill="none")
+```
+

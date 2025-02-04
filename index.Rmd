@@ -28,6 +28,8 @@ The purpose of this repository is to provide a space for our open data analyses
 * Open analyses
   + [Redcedar Dieback](./redcedar/)
   + [Urban Redcedar Dieback](https://jmhulbert.github.io/redhot/)
+  + [Redcedar Seasonal Resvisit Study](./revisit/)
+  + [Open Redcedar Adaptation Network](https://jmhulbert.github.io/adaptation/)
   
 ### Contact
 
