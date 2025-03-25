@@ -13,7 +13,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 ```
 
-
 ## Welcome
 
 This is a r markdown document for an analysis with the redcedar revisit study data by jim1083 on iNatraulist. 
