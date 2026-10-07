@@ -49,6 +49,10 @@ merged.data <- merged.data %>% filter(field.2023...fall.seasonal.branch.browning
 
 
 ```{r fig.height=5, fig.width=10}
-ggplot(merged.data,aes(field.2023...fall.seasonal.branch.browning.percent..0.100..,field.optional...access.to.water,fill=field.optional...access.to.water))+geom_boxplot()+coord_flip()+theme_bw()+guides(fill="none")
+ggplot(merged.data,aes(field.2023...fall.seasonal.branch.browning.percent..0.100..,field.optional...access.to.water,fill=field.optional...access.to.water)) +
+  geom_boxplot() +
+  theme_bw() +
+  guides(fill="none") +
+  scale_color_manual(values = c("#7CAE00", "#00BFC4", "#C77CFF"))
 ```
 
