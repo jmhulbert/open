@@ -49,7 +49,65 @@ merged.data <- merged.data %>% filter(field.2023...fall.seasonal.branch.browning
 ```
 
 
+```{r}
+levels(as.factor(merged.data$field.optional...access.to.water))
+merged.data$water_access <- factor(
+  merged.data$field.optional...access.to.water,
+  levels = c(
+    "Tree does not typically have access to water in summer",
+    "Tree has access to water year round (watered in summer or near permanent water source)",
+    "Tree may have occassional access to water in summer (watered by someone)"
+  ),
+  labels = c(
+    "No summer water",
+    "Year-round water",
+    "Occasional summer water"
+  )
+)
+```
+
+
 ```{r fig.height=5, fig.width=10}
-ggplot(merged.data,aes(field.2023...fall.seasonal.branch.browning.percent..0.100..,field.optional...access.to.water,fill=field.optional...access.to.water))+geom_boxplot()+coord_flip()+theme_bw()+guides(fill="none")
+ggplot(merged.data, aes(
+  x = field.2023...fall.seasonal.branch.browning.percent..0.100..,
+  y = water_access,
+  fill = water_access
+)) +
+  geom_boxplot() +
+  theme_bw() +
+  guides(fill = "none") +
+  scale_fill_manual(values = c("#7CAE00", "#00BFC4", "#C77CFF")) +
+  scale_y_discrete(
+    labels = function(x) stringr::str_wrap(x, width = 20)
+  ) +
+  theme(axis.text.y = element_text(size = 10, lineheight = 0.9)) +
+  labs(y="Water Access",x="Seasonal Foliage Browning (%)")
+
+```
+
+```{r}
+# Prepare the two variables and remove missing observations
+browning_data <- merged.data %>%
+  transmute(
+    browning = as.numeric(as.character(
+      field.2023...fall.seasonal.branch.browning.percent..0.100..
+    )),
+    water_access = factor(water_access)
+  ) %>%
+  filter(!is.na(browning), !is.na(water_access))
+
+# Summarize browning within each group
+browning_data %>%
+  group_by(water_access) %>%
+  summarise(
+    n = n(),
+    median_percent = median(browning),
+    Q1 = quantile(browning, 0.25),
+    Q3 = quantile(browning, 0.75),
+    .groups = "drop"
+  )
+
+# Overall test for differences among water-access groups
+kruskal.test(browning ~ water_access, data = browning_data)
 ```
 
